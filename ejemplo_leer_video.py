@@ -19,9 +19,9 @@ while (cap.isOpened()): # Verifica si el video se abrió correctamente.
 
         frame = cv2.resize(frame, dsize=(int(width/3), int(height/3))) # Redimensiona el frame capturado.
 
-        cv2.imshow('Frame', frame) # Muestra el frame redimensionado.
+        #cv2.imshow('Frame', frame) # Muestra el frame redimensionado.
 
-        # cv2.imwrite(os.path.join("frames", f"frame_{frame_number}.jpg"), frame) # Guarda el frame en el archivo './frames/frame_{frame_number}.jpg'.
+        cv2.imwrite(os.path.join("frames", f"frame_{frame_number}.jpg"), frame) # Guarda el frame en el archivo './frames/frame_{frame_number}.jpg'.
 
         frame_number += 1
         if cv2.waitKey(25) & 0xFF == ord('q'): # Espera 25 milisegundos a que se presione una tecla. Si se presiona 'q' se rompe el bucle y se cierra la ventana.
