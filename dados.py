@@ -267,9 +267,68 @@ def show_dados_info(frame, dados_info):
 '''
 Programa Principal
 '''
+# Parte a
 frame, mask_dados, dados_coords = video_process('tirada_4.mp4')
 show_results(frame)
 # scores = get_dado_scores(mask_dados, dados_coords, roi_size=100)
 dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
 # Llamar a la función para mostrar los ROIs de los dados
 show_dados_info(frame, dados_info)
+
+
+# Parte b
+#--------- grabar video. Una modificación de la función process_video_ y usa todo lo demás
+
+def video_record(input_video, output_video, roi_size=100):
+    cap = cv2.VideoCapture(input_video)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+
+    out = cv2.VideoWriter(output_video, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
+
+    queue_coords = []
+    mask_green = None
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        # Detectar la máscara del paño verde solo en el primer frame
+        if mask_green is None:
+            mask_green = create_green_mask(frame)
+        # Detectar los dados
+        mask_dados, dados_coords = detect_red_dados(frame, mask_green)
+        # Si hay exactamente 5 dados, verificamos si están en reposo
+        if len(dados_coords) == 5:
+            queue_coords.append(dados_coords)
+            if len(queue_coords) > 5:
+                queue_coords.pop(0)
+            if len(queue_coords) == 5 and stopped(queue_coords):
+                # Calcular la información de los dados
+                dados_info = get_dados_info(mask_dados, dados_coords, roi_size)
+                # Dibujar bounding boxes y etiquetas
+                for dado in dados_info:
+                    cx, cy = dado["coords"]
+                    pips = dado["pips"]
+                    # Dibujar bounding box
+                    x_start = max(cx - roi_size // 2, 0)
+                    x_end = min(cx + roi_size // 2, frame.shape[1])
+                    y_start = max(cy - roi_size // 2, 0)
+                    y_end = min(cy + roi_size // 2, frame.shape[0])
+                    cv2.rectangle(frame, (x_start, y_start), (x_end, y_end), (255, 0, 0), 2)
+                    # Dibujar etiqueta con el número de pips
+                    # label = f"Pips: {pips}"
+                    label = f"{pips}"
+                    cv2.putText(frame, label, (x_start, y_start - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 4)
+        # Escribir el frame procesado en el archivo de salida
+        out.write(frame)
+        # Mostrar el frame (opcional, para debug)
+        cv2.imshow('Processed Frame', cv2.resize(frame, (width // 3, height // 3)))
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            break
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
+
+# Llamar a la función con el video de entrada y el nombre del video de salida
+video_record('tirada_1.mp4', 'Video-Output-Processed1.mp4')
