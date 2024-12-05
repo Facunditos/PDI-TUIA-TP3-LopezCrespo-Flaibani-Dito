@@ -390,6 +390,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import math
 
 video = "tirada_1.mp4"
 cap = cv2.VideoCapture(video)  # Capturar video desde un archivo:
@@ -472,7 +473,7 @@ cv2.destroyAllWindows() #  cerrar las ventanas
 
 print(f"Se han guardado {frame_count} frames en la carpeta '{output_folder}'.")
 
-# convierto a FUNCION
+# convierto a FUNCION Lectura ##########################################################################################
 def lectura(video):
     output_folder = "frames_output"
     if not os.path.exists(output_folder):
@@ -522,3 +523,212 @@ def lectura(video):
     return output_folder
 
 output_folder = lectura('tirada_1.mp4')
+
+# funcion redimensionar tamaño para ahorra costo computacional ##################################################################################3
+"""
+# Funcion para REDIMENSIONAR tamaños :  útil para 1-optimización de recursos: Reducir el tamaño de una imagen o video para ahorrar memoria y acelerar cálculos.
+                                                # 2.Preprocesamiento: Preparar imágenes para modelos que requieren entradas de tamaño fijo.
+# La imagen es la misma pero más pequeña: Todo el contenido se reduce en tamaño. 
+# Mantiene todo el contenido de la imagen:
+La proporción y los objetos en la imagen no cambian; simplemente se ajusta la cantidad de píxeles que la representan.
+No selecciona ni recorta ninguna parte específica de la imagen.   
+Al reducir la imagen ( a la mitad), OpenCV utiliza métodos de interpolación para eliminar píxeles y comprimir la imagen.
+NOTA: Aunque se reduce el tamaño, cuando la visualizas, el visor o librería (como matplotlib) puede escalar automáticamente la imagen 
+    redimensionada para ajustarla al tamaño de la ventana. Por eso parece que ves la misma imagen.
+"""                                       
+def redimensionar(frame):
+    height, width = frame.shape[:2] # frame.shape retorna una tupla que contiene (alto, ancho, canales), [:2] selecciona los dos primeros elementos de la tupla.
+    frame = cv2.resize(frame, dsize=(int(width/2), int(height/2))) # El ancho se reduce a la mitad: int(width/2).
+    return frame
+
+# Redimensionar usando la función
+frame= cv2.imread('frames_output/frame_80.jpg') # OpenCV carga imágenes en el espacio de color BGR, pero matplotlib espera imágenes en el formato RGB. Por eso, usamos:
+frame_reducido = redimensionar(frame)
+
+# Imagen original
+plt.subplot(1, 2, 1)
+plt.imshow(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))  # Convertir de BGR a RGB
+plt.title("Imagen Original")
+#plt.axis('off')  # Ocultar ejes
+plt.axis()
+
+# Imagen redimensionada
+plt.subplot(1, 2, 2)                      # Convertir de BGR a RGB para matplotlib. 
+plt.imshow(cv2.cvtColor(frame_reducido, cv2.COLOR_BGR2RGB)) #  plt.imshow() renderiza la imagen: Esto es necesario antes de llamar a plt.show().
+plt.axis()  # Ocultar ejes
+plt.title("Imagen Redimensionada")
+
+# Mostrar las imágenes
+plt.tight_layout()  # Ajustar el diseño para evitar solapamiento
+plt.show()
+
+# Mostrar los tamaños
+print("Tamaño original:", frame.shape[:2]) # (2224, 1080)
+print("Tamaño redimensionado:", frame_reducido.shape[:2]) # (1112, 540)
+
+# funcion PROCESAR COLOR ###################################################################################################################
+# Seguimiento de objetos rojos en videos.
+# Segmentación de colores específicos para análisis
+# Opcion 1
+def procesar_color(frame):
+    """ La función procesar_color realiza operaciones de segmentación y transformación de una imagen para detectar y 
+        resaltar el color rojo en un frame (imagen), y devuelve:
+            La imagen segmentada en escala de grises.
+            La imagen con el color rojo resaltado en formato RGB."""
+
+    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)   # Convierte la imagen de formato BGR
+    """ Convierte la imagen a espacio de color HSV:
+                    H (Tono): Describe el color (valores entre 0 y 179).
+                    S (Saturación): Intensidad del color (0-255).
+                    V (Valor): Brillo (0-255). """
+    img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255 
+    h, s, v = cv2.split(img_hsv)      # División: Separa los canales de H, S, y V en matrices individuales usando cv2.split.
+ 
+
+    # Segmentacion en color - Detectar solo el rojo 
+    """El rojo en HSV generalmente tiene dos rangos:
+        Rango bajo: H de 0 a 10.
+        Rango alto: H de 160 a 179.
+    """
+    ix_h1 = np.logical_and(h > 179 * .9, h < 179 * 0.1) # Condiciones para H (Tono): ix_h1: Detecta tonos de rojo cercanos al valor superior del espectro (entre 90% y 100% de 180).
+    ix_h2 = h < 180 * 0.04                        # ix_h2: Detecta tonos de rojo cercanos al valor inferior del espectro (0 a 4% de 180).
+    ix_s = np.logical_and(s > 255 * 0.3, s < 255)   # Condiciones para S (Saturación): ix_s: Detecta colores con saturación entre el 30% y el 100% de 255.
+    ix = np.logical_and(np.logical_or(ix_h1, ix_h2), ix_s) # Máscara combinada (ix): Unión lógica: Combina las máscaras de tonos de rojo (ix_h1 o ix_h2) con la de saturación (ix_s)
+    # ix2 = (ix_h1 | ix_h2) & ix_s   # Otra opcion que da igual...
+    
+    # Eliminar colores no deseados:
+    r, g, b = cv2.split(img) # Se separan los canales RGB
+    r[ix != True] = 0 # Los píxeles que no cumplen con la máscara (ix) se eliminan (se ponen a 0).
+    g[ix != True] = 0
+    b[ix != True] = 0
+    # Reconstruir la imagen roja
+    rojo_img = cv2.merge((r, g, b)) # e combinan los canales para obtener la imagen con el color rojo resaltado.
+
+    img_gris =  cv2.cvtColor(rojo_img, cv2.COLOR_RGB2GRAY) # a imagen procesada se convierte a escala de grises, útil para análisis o detección adicional.
+
+    return img_gris,rojo_img # rojo_img: Imagen RGB con solo los píxeles rojos. 
+                             # img_gris: Imagen en escala de grises con el color rojo resaltado.
+
+
+# Procesar la imagen
+img_gris, rojo_img = procesar_color(frame_reducido) # Ojo agarrar un frame que tenga dados
+
+# Mostrar resultados
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.title("Escala de Grises")
+plt.imshow(img_gris, cmap='gray')
+
+plt.subplot(1, 2, 2)
+plt.title("Rojo Resaltado")
+plt.imshow(cv2.cvtColor(rojo_img, cv2.COLOR_RGB2BGR))  # Convertir a BGR para visualizar correctamente
+plt.show()
+
+## Opcion 2
+def procesar_color1(frame):
+    """Segmenta y resalta el color rojo en una imagen, devolviendo una versión en escala de grises y otra RGB."""
+    
+    # Convertir a RGB y luego a HSV
+    img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+
+    # Definir rangos de rojo en HSV
+    lower_red_1 = np.array([0, 50, 50])    # Rango bajo del rojo De H = 0 a 10 (rojo "bajo").
+    upper_red_1 = np.array([10, 255, 255])  
+    lower_red_2 = np.array([160, 50, 50])  # Rango alto del rojo De H = 160 a 179 (rojo "alto").
+    upper_red_2 = np.array([179, 255, 255])
+
+    # Crear máscaras para cada rango
+    mask1 = cv2.inRange(img_hsv, lower_red_1, upper_red_1) # Esto crea una máscara binaria que marca los píxeles dentro del rango especificado.
+    mask2 = cv2.inRange(img_hsv, lower_red_2, upper_red_2)
+
+    # Combinar máscaras
+    mask = cv2.bitwise_or(mask1, mask2)  # cv2.bitwise_or combina las máscaras para incluir ambos rangos de rojo.
+
+    # Aplicar la máscara a la imagen original
+    rojo_img = cv2.bitwise_and(img, img, mask=mask) # cv2.bitwise_and conserva solo los píxeles marcados en la máscara y elimina el resto.
+
+    # Convertir a escala de grises
+    img_gris = cv2.cvtColor(rojo_img, cv2.COLOR_RGB2GRAY) # Se genera una imagen en escala de grises con solo los píxeles rojos resaltados.
+
+    return img_gris, rojo_img
+
+# Procesar la imagen
+img_gris, rojo_img = procesar_color1(frame_reducido) # Ojo agarrar un frame que tenga dados
+
+# Mostrar resultados
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.title("Escala de Grises")
+plt.imshow(img_gris, cmap='gray')
+
+plt.subplot(1, 2, 2)
+plt.title("Rojo Resaltado")
+plt.imshow(cv2.cvtColor(rojo_img, cv2.COLOR_RGB2BGR))  # Convertir a BGR para visualizar correctamente
+plt.show()
+
+## FUNCION CUADRADOS ##################################################################################################################
+# https://docs.opencv.org/4.x/dd/d49/tutorial_py_contour_features.html
+def es_cuadrado(contorno):
+    """ La función es_cuadrado(contorno) detecta si un contorno tiene una forma aproximada de cuadrado basándose en el número de vértices del contorno. 
+    Si el contorno tiene 4 vértices, devuelve True, sugiriendo que el contorno es cuadrado o rectangular. Si el contorno tiene más o menos de 4 vértices, devuelve False.
+    épsilon = 0,1* cv.arcLength (cnt, True )
+    aprox = cv.approxPolyDP (cnt,épsilon, Verdadero )"""
+    épsilon = 0.05* cv2.arcLength (contorno, True )
+    perimetro = cv2.arcLength(contorno, True)  # Calcula el perímetro del contorno (True indica que el contorno es cerrado,que forma un polígono cerrado,  lo que significa que se conecta en su punto final con su punto inicial.)
+    approx = cv2.approxPolyDP(contorno, épsilon, True) # Aproxima el contorno a un polígono, Si el contorno es cuadrado, la aproximación tendrá 4 vértices.
+    """  es la precisión del algoritmo. El valor 0.05 * perimetro indica cuánto se puede reducir el número de vértices del contorno sin que se pierda mucha información. 
+    Un valor de 0.05 es un valor comúnmente usado para preservar la forma general sin perder demasiados detalles, cuanto menor sea este valor, más puntos mantendrá la aproximación."""
+    if len(approx) == 4:  # Verifica si el contorno tiene 4 vértices, lo que indica que es un cuadrado o podria ser un rectangulo
+        """Si deseas una verificación más precisa para asegurar que los contornos sean cuadrados, podrías agregar una comprobación adicional 
+        para evaluar si los ángulos entre los lados del polígono aproximado son cercanos a 90 grados."""
+        # Verificar si los ángulos son aproximadamente 90 grados
+        for i in range(4):
+           for i in range(4): # Este ciclo recorre los 4 vértices de la aproximación (almacenados en approx).
+            """ p1, p2, y p3 son tres vértices consecutivos. Notarás que usamos (i + 1) % 4 y (i + 2) % 4 para hacer el acceso cíclico a los índices, es decir, al final de la lista de 
+            vértices volvemos al principio. Esto es importante para comparar los lados del contorno de forma continua"""
+            p1 = approx[i][0]  # Primer vértice
+            p2 = approx[(i + 1) % 4][0]  # Segundo vértice (el siguiente, con índice cíclico)
+            p3 = approx[(i + 2) % 4][0]  # Tercer vértice (el siguiente después de p2)
+
+            # Calcular el vector del primer lado (de p1 a p2)
+            vec1 = (p2[0] - p1[0], p2[1] - p1[1])
+            # Calcular el vector del segundo lado (de p2 a p3)
+            vec2 = (p3[0] - p2[0], p3[1] - p2[1])
+            
+            # Calcular el producto punto entre los dos vectores
+            dot_product = vec1[0] * vec2[0] + vec1[1] * vec2[1]
+            # Calcular la magnitud de los vectores (longitudes)
+            magnitude1 = math.sqrt(vec1[0] ** 2 + vec1[1] ** 2) # Magnitud del primer vector
+            magnitude2 = math.sqrt(vec2[0] ** 2 + vec2[1] ** 2)  # Magnitud del segundo vector
+            
+            # Calcular el coseno del ángulo entre los dos vectores
+            cos_theta = dot_product / (magnitude1 * magnitude2) # Coseno del ángulo entre los vectores
+            
+            # Si el coseno es cercano a 0, significa que los vectores son perpendiculares, Si el coseno del ángulo no es cercano a cero, 
+            # significa que los vectores no son perpendiculares (es decir, el ángulo no es cercano a 90 grados).
+            if abs(cos_theta) > 0.1:
+                return False  # Si los ángulos no son cercanos a 90 grados, no es un cuadrado
+
+        return True  # Si todos los ángulos son aproximadamente 90 grados, es un cuadrado
+    return False  # Si no tiene 4 vértices, no es cuadrado
+
+
+# Función para detectar contornos cuadrados
+def detectar_contornos_cuadrados(frame):
+    
+
+    # Aplicar umbral adaptativo para resaltar contornos
+    _, umbral = cv2.threshold(frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Encontrar contornos en la imagen umbralizada
+    contornos, _ = cv2.findContours(umbral, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Filtrar contornos cuadrados aproximados
+    
+    contornos_cuadrados = [cnt for cnt in contornos if es_cuadrado(cnt) and cv2.contourArea(cnt) > 50*50]
+    return contornos_cuadrados
+
+
+
+
