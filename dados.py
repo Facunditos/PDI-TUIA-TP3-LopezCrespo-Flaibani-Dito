@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from collections import Counter
 import os
 
 # os.makedirs("frames", exist_ok = True)  # Si no existe, crea la carpeta 'frames' en el directorio actual.
@@ -25,6 +26,7 @@ def imshow(img, new_fig=True, title=None, color_img=False, blocking=False, color
     if new_fig:
         plt.show(block=blocking)
 
+
 '''
 Reconstrucción Morgológica.
 '''
@@ -38,6 +40,7 @@ def imreconstruct(marker: np.ndarray, mask: np.ndarray, kernel=None)-> np.ndarra
             break                                                           #
         marker = expanded_intersection
     return expanded_intersection
+
 
 '''
 Version 1
@@ -90,29 +93,37 @@ def detect_red_dados(frame, mask_green):
     """
     Detecta los dados rojos dentro de la región delimitada por el paño verde.
     """
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # Definir límites para el color rojo en HSV
-    lower_red1 = np.array([0, 50, 50])   # Rojo rango 1
-    upper_red1 = np.array([10, 255, 255])
-    lower_red2 = np.array([170, 50, 50])  # Rojo rango 2
-    upper_red2 = np.array([180, 255, 255])
-    # Máscaras para los dos rangos de rojo
-    mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    mask_red = cv2.bitwise_or(mask_red1, mask_red2)
-    # Limitar la detección de dados al área del paño verde
-    mask_dados = cv2.bitwise_and(mask_red, mask_green)
+    mask_red = create_red_mask(frame)
+    mask_dados= cv2.bitwise_and(mask_green, mask_red)
+    # mask_blurred = cv2.GaussianBlur(mask_dados, (3, 3), 0)
+    # mask_dados_fill = imfillhole(mask_dados)
+    # k2 = 5
+    # mask_dados_fill1= cv2.morphologyEx(mask_dados, cv2.MORPH_OPEN, (k2, k2))
+    k2 = 5
+    mask_dados_fill = cv2.morphologyEx(mask_dados, cv2.MORPH_CLOSE, (k2, k2))
+
     # Buscar contornos en la máscara resultante
-    contours, _ = cv2.findContours(mask_dados, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(mask_dados_fill, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Calcula las áreas de todos los contornos
+    areas = [cv2.contourArea(contour) for contour in contours]
+
+    # Cálculo auxiliar inicial para estimar los rangos del área de un dado
+    # Calcula el área promedio
+    if len(areas) > 0:  # Verifica que haya contornos
+        area_promedio = sum(areas) / len(areas)
+        print(f"El área promedio de los contornos es: {area_promedio} {len(contours)}")
+    else:
+        print("No se encontraron contornos.")
+
     dados_coords = []
     for contour in contours:
-        if cv2.contourArea(contour) > 100:  # Filtrar ruido (ajusta el área mínima)
+        if 2000 <= cv2.contourArea(contour) <= 6500:  # Filtrar ruido (ajusta el área mínima)
             # Obtener el centroide del contorno
             M = cv2.moments(contour)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                dados_coords.append((cx, cy))
+            # if M["m00"] != 0:
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            dados_coords.append((cx, cy))
     return mask_dados, dados_coords
 
 
@@ -158,45 +169,75 @@ def get_dados_info(mask_dados, dados_coords, roi_size=100):
             area = stats[i, cv2.CC_STAT_AREA]
             if area > 20:  # Ajustar según el tamaño de los pips
                 pip_count += 1
-        # Agregar información del dado al diccionario
-        dado = {
-            "coords": (cx, cy),
-            "roi": roi_cleaned,
-            "pips": pip_count
-        }
-        dados_info.append(dado)
+        if 1 <= pip_count <= 6: # controla que el puntaje esté entre 1 y 6
+            # Agregar información del dado al diccionario
+            dado = {
+                "coords": (cx, cy),
+                "roi": roi_cleaned,
+                "pips": pip_count
+            }
+            dados_info.append(dado)
     return dados_info
 
 
 def video_process(video):
-    i=0
-    cap = cv2.VideoCapture(video)
-    queue_coords = []  # Cola de coordenadas de los dados (últimos 5 frames)
+    i = 0
+    flag_start = True
     frame_number = 0
+    frame_number_start = -1
+    frame_number_end = -1
+    frame_end = None
+    queue_coords = []  # Cola de coordenadas de los dados (últimos 5 frames)
+    max_len_queue = 5
+    cap = cv2.VideoCapture(video)
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
         # cv2.imwrite(os.path.join("frames", f"frame_{frame_number}.jpg"), frame)
-        frame_number +=1
         # Detectar el paño verde
-        if frame_number == 1: mask_green = create_green_mask(frame)
-        # # Detectar los dados rojos dentro del paño verde
+        if frame_number == 0: mask_green = create_green_mask(frame)
+        # Detectar los dados rojos dentro del paño verde
         mask_dados, dados_coords = detect_red_dados(frame, mask_green)
         i+=1
         print(i)
         if len(dados_coords) == 5:  # Solo analizamos si hay exactamente 5 dados detectados
             print(5)
             queue_coords.append(dados_coords)
-            if len(queue_coords) > 5:  # Mantener la cola con un máximo de 5 elementos
+            if len(queue_coords) > max_len_queue:  # Mantener la cola con un máximo de 5 elementos
                 queue_coords.pop(0)
-            # Verificar si los dados están quietos
-            if len(queue_coords) == 5 and stopped(queue_coords):
-                # imshow(frame, title='Frame detenido')
-                cap.release()
-                return frame, mask_dados, dados_coords
+            # Verificar si hay 5 dados y están quietos
+            if len(queue_coords) == max_len_queue:
+                # Está detenido
+                if stopped(queue_coords):
+                    # imshow(frame, title='Frame detenido')
+                    if flag_start:
+                        # Número del frame de inicio: detenido
+                        frame_number_start = frame_number - max_len_queue + 1
+                        frame_number_end = frame_number
+                        frame_end = frame
+                        mask_dados_end = mask_dados
+                        dados_coords_end =dados_coords
+                        flag_start = False
+                    else:
+                        # Número del frame final: detenido
+                        frame_number_end = frame_number
+                # Estuvo detenido y se volvió a mover
+                elif not flag_start:
+                    cap.release()
+                    return frame_end, frame_number_start, frame_number_end, mask_dados_end, dados_coords_end
+        # no hay 5 dados en la imagen
+        elif not flag_start:
+            cap.release()
+            return frame_end, frame_number_start, frame_number_end, mask_dados_end, dados_coords_end
+        frame_number +=1
     cap.release()
-    return None, None
+    if not flag_start:  # Si ya se habían detenido
+        return frame_end, frame_number_start, frame_number_end, mask_dados_end, dados_coords_end
+
+    # Si los dados nunca estuvieron quietos
+    return None, -1, -1, None, None
 
 
 def show_results(frame):
@@ -263,23 +304,31 @@ def show_dados_info(frame, dados_info):
     plt.show(block=False)
 
 
+def evaluar_generala(dados_info):
+    # Extraer los valores (pips) de los dados
+    valores_dados = [dado["pips"] for dado in dados_info]
+    
+    # Contar las ocurrencias de cada valor
+    conteo = Counter(valores_dados)
+    
+    # Ordenar las ocurrencias en una lista [(valor, cantidad), ...]
+    conteo_ordenado = conteo.most_common()
+    
+    # Verificar combinaciones del juego
+    if len(conteo) == 1:  # Todos los dados tienen el mismo valor
+        return "¡Generala!"
+    elif conteo_ordenado[0][1] == 4:  # Cuatro dados iguales
+        return "¡Póker!"
+    elif conteo_ordenado[0][1] == 3 and len(conteo) == 2:  # Tres y dos iguales
+        return "¡Full!"
+    elif len(conteo) == 5 and sorted(valores_dados) in [list(range(1, 6)), list(range(2, 7))]:  # Escalera
+        return "¡Escalera!"
+    else:
+        return "No se logró una combinación especial."
 
-'''
-Programa Principal
-'''
-# Parte a
-frame, mask_dados, dados_coords = video_process('tirada_4.mp4')
-show_results(frame)
-# scores = get_dado_scores(mask_dados, dados_coords, roi_size=100)
-dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
-# Llamar a la función para mostrar los ROIs de los dados
-show_dados_info(frame, dados_info)
 
-
-# Parte b
-#--------- grabar video. Una modificación de la función process_video_ y usa todo lo demás
-
-def video_record(input_video, output_video, roi_size=100):
+def video_record(input_video, output_video, frame_number_start, frame_number_end, dados_coords, roi_size=100):
+    frame_number = 0
     cap = cv2.VideoCapture(input_video)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -287,48 +336,53 @@ def video_record(input_video, output_video, roi_size=100):
 
     out = cv2.VideoWriter(output_video, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
-    queue_coords = []
-    mask_green = None
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
-        # Detectar la máscara del paño verde solo en el primer frame
-        if mask_green is None:
-            mask_green = create_green_mask(frame)
-        # Detectar los dados
-        mask_dados, dados_coords = detect_red_dados(frame, mask_green)
-        # Si hay exactamente 5 dados, verificamos si están en reposo
-        if len(dados_coords) == 5:
-            queue_coords.append(dados_coords)
-            if len(queue_coords) > 5:
-                queue_coords.pop(0)
-            if len(queue_coords) == 5 and stopped(queue_coords):
-                # Calcular la información de los dados
-                dados_info = get_dados_info(mask_dados, dados_coords, roi_size)
-                # Dibujar bounding boxes y etiquetas
-                for dado in dados_info:
-                    cx, cy = dado["coords"]
-                    pips = dado["pips"]
-                    # Dibujar bounding box
-                    x_start = max(cx - roi_size // 2, 0)
-                    x_end = min(cx + roi_size // 2, frame.shape[1])
-                    y_start = max(cy - roi_size // 2, 0)
-                    y_end = min(cy + roi_size // 2, frame.shape[0])
-                    cv2.rectangle(frame, (x_start, y_start), (x_end, y_end), (255, 0, 0), 2)
-                    # Dibujar etiqueta con el número de pips
-                    # label = f"Pips: {pips}"
-                    label = f"{pips}"
-                    cv2.putText(frame, label, (x_start, y_start - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 4)
+        if frame_number_start < frame_number <= frame_number_end:
+            for i, dado in enumerate(dados_info):
+                cx, cy = dado["coords"]
+                pips = dado["pips"]
+                # Dibujar bounding box
+                x_start = max(cx - roi_size // 2, 0)
+                x_end = min(cx + roi_size // 2, frame.shape[1])
+                y_start = max( cy - roi_size // 2, 0)
+                y_end = min(cy + roi_size // 2, frame.shape[0])
+                cv2.rectangle(frame, (x_start, y_start), (x_end, y_end), (255, 0, 0), 2)
+                # Dibujar etiqueta con el número de pips
+                # label = f"Pips: {pips}"
+                label = f"Dado {i+1}: {pips}"
+                cv2.putText(frame, label, (x_start, y_start - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), 2)
+
         # Escribir el frame procesado en el archivo de salida
         out.write(frame)
         # Mostrar el frame (opcional, para debug)
         cv2.imshow('Processed Frame', cv2.resize(frame, (width // 3, height // 3)))
+        frame_number += 1
         if cv2.waitKey(25) & 0xFF == ord('q'):
             break
     cap.release()
     out.release()
     cv2.destroyAllWindows()
 
+
+
+'''
+Programa Principal
+'''
+# Parte a
+frame, frame_number_start, frame_number_end, mask_dados, dados_coords = video_process('tirada_2.mp4')
+imshow(frame)
+show_results(frame)
+dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
+# Llamar a la función para mostrar los ROIs de los dados
+show_dados_info(frame, dados_info)
+
+resultado = evaluar_generala(dados_info)
+print(f"Resultado del juego: {resultado}")
+
+# Parte b
 # Llamar a la función con el video de entrada y el nombre del video de salida
-video_record('tirada_1.mp4', 'Video-Output-Processed1.mp4')
+video_record('tirada_1.mp4', 'Video-Output-Processed1.mp4', frame_number_start, frame_number_end, dados_coords, roi_size=100)
+
