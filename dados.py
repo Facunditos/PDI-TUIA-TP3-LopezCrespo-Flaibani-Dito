@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import os
 import math
 
-# os.makedirs("frames", exist_ok = True)  # Si no existe, crea la carpeta 'frames' en el directorio actual.
 #-------------------
 # Funciones
 #-------------------
@@ -278,49 +277,55 @@ def programa_dados(path):
     #cv2.destroyAllWindows()
 
 
-def grabar_video(path):
-    video_path = './' + path
-    cap = cv2.VideoCapture(video_path)
 
-    ret, frame = cap.read()
-    if not ret:
+def grabar_video(path):
+    """
+    objetivo procesar un video, detectar contornos cuadrados en los frames, realizar algunas comparaciones entre frames consecutivos y
+    luego guardar el video procesado con anotaciones.
+    """
+    video_path = './' + path
+    cap = cv2.VideoCapture(video_path) # abre el archivo de video para leer los frames.
+
+    ret, frame = cap.read()   #  intenta leer el primer frame usando cap.read()
+    if not ret:              # Si no puede leer el frame (por ejemplo, si el archivo no existe o está dañado), se imprime un mensaje de error y se termina el programa.
         print("No se pudo abrir el video.")
         exit()
 
-    # Configurar el video de salida
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video_name = video_path[2:-4]+'_procesado.mp4'
-    out = cv2.VideoWriter(video_name, fourcc, 20.0, (frame.shape[1], frame.shape[0]))
-
+    # Configurar el video de salida           # Se crea un objeto cv2.VideoWriter que guardará el video procesado.
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') # El código 'mp4v' se utiliza para crear un archivo de video en formato MP4.
+    video_name = video_path[2:-4]+'_procesado.mp4' # El nombre del archivo de salida será el mismo que el de entrada, pero con el sufijo _procesado.mp4.
+    out = cv2.VideoWriter(video_name, fourcc, 20.0, (frame.shape[1], frame.shape[0])) 
+                        #El video se guardará a 20 fps (20.0) y se mantendrá la misma resolución que el video de entrada (frame.shape[1] y frame.shape[0]).
     f = 0
     contornos_anteriores = None
     intervalo_comparacion = 7  # Realizar la comparación cada 7 frames
 
-    while True:
+    while True: # Se entra en un bucle que lee cada frame del video. Si no se puede leer un frame, se rompe el bucle, indicando que se ha llegado al final del video.
         ret, frame = cap.read()
         if not ret:
             break
 
         frame_procesado, _ = procesar_color(frame)
         contornos_cuadrados = detectar_contornos_cuadrados(frame_procesado)
-
+        
+        # Comparación de contornos entre frames consecutivos:
         if len(contornos_cuadrados) > 0:
             if f % intervalo_comparacion == 0:
                 if contornos_anteriores is not None:
-                    area_actual = sum(cv2.contourArea(contorno) for contorno in contornos_cuadrados)
+                    area_actual = sum(cv2.contourArea(contorno) for contorno in contornos_cuadrados) # Se calcula el área de los contornos cuadrados actuales y anteriores.
                     area_anterior = sum(cv2.contourArea(contorno) for contorno in contornos_anteriores)
 
-                    if abs(area_actual - area_anterior) < 100:
-                        recortes = recortarxcontorno(frame_procesado, contornos_cuadrados)
+                    if abs(area_actual - area_anterior) < 100:  # Si la diferencia entre área actual y anterior es menor que 100, se continúa con el procesamiento.
+                        recortes = recortarxcontorno(frame_procesado, contornos_cuadrados) # se recortan las áreas de interés con recortarxcontorno.
 
                         for i, recorte in enumerate(recortes):
-                            valor = contarDados(recorte)
-                            x, y, w, h = cv2.boundingRect(contornos_cuadrados[i])
+                            valor = contarDados(recorte) # Para cada recorte (dado que puede haber varios contornos cuadrados en un frame), se calcula el valor usando contarDados(recorte).
+                            x, y, w, h = cv2.boundingRect(contornos_cuadrados[i]) 
 
                             # Dibujar un bounding box en el frame original
-                            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
+                            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2) # se dibuja un rectángulo alrededor del contorno en el frame original 
 
-                            # Mostrar el valor en el bounding box
+                            # Mostrar el valor en el bounding box: se agrega texto al rectángulo con cv2.putText(), mostrando el valor calculado.
                             cv2.putText(frame, f'Puntos: {valor}', (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
                 contornos_anteriores = contornos_cuadrados
@@ -331,9 +336,18 @@ def grabar_video(path):
         # if cv2.waitKey(25) & 0xFF == ord('q'):
         #     break
 
-    cap.release()
+    cap.release() # Después de procesar todos los frames, se liberan los objetos cap y out, que son responsables de leer y escribir el video, respectivamente.
     out.release()
     #cv2.destroyAllWindows() 
+
+
+
+# Obtener la lista de archivos de imágenes en el directorio actual
+archivos_video = [f for f in os.listdir('./') if f.endswith(('.mp4'))]
+
+for video in archivos_video:
+  programa_dados(video)
+  grabar_video(video)
 
 
 
