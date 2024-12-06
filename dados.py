@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import math
 
 # os.makedirs("frames", exist_ok = True)  # Si no existe, crea la carpeta 'frames' en el directorio actual.
 #-------------------
@@ -55,342 +56,9 @@ def imfillhole(img: np.ndarray)-> np.ndarray:
     return img_fh
 
 
-def create_green_mask(frame):
-    """
-    Detecta la zona del paño verde y genera una máscara binaria.
-    """
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)  # Convierte el frame a espacio de color HSV
-    # Definir límites para el color verde en HSV (ajusta según el video), define un rango (lower_green y upper_green).
-    lower_green = np.array([35, 50, 50])  # H, S, V mínimos
-    upper_green = np.array([85, 255, 255])  # H, S, V máximos
-    # Crear máscara binaria del paño verde
-    mask = cv2.inRange(hsv, lower_green, upper_green) # Usa cv2.inRange() para generar una máscara donde los píxeles en el rango definido se marcan como blancos.
-    mask_fill = imfillhole(mask) # Llena agujeros en la máscara con una función adicional (imfillhole).
-    return mask_fill
-
-
-def create_red_mask(frame):
-    """
-    Detecta los dados rojos, los píxeles de color rojo en el frame.
-    """
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV) # Convierte el frame a HSV.
-    # Definir límites para el color rojo en HSV
-    """ Define dos rangos de color rojo:
-Rango 1 para tonos de rojo bajos (lower_red1, upper_red1).
-Rango 2 para tonos de rojo altos (lower_red2, upper_red2).
-Combina las máscaras de los dos rangos usando cv2.bitwise_or()."""
-    lower_red1 = np.array([0, 50, 50])   # Rojo rango 1
-    upper_red1 = np.array([10, 255, 255])
-    lower_red2 = np.array([170, 50, 50])  # Rojo rango 2
-    upper_red2 = np.array([180, 255, 255])
-    # Máscaras para los dos rangos de rojo
-    mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    mask_red = cv2.bitwise_or(mask_red1, mask_red2)
-    return mask_red
-
-
-def detect_red_dados(frame, mask_green):
-    """
-    Detecta los dados rojos dentro de la región delimitada por el paño verde.
-    """
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    # Definir límites para el color rojo en HSV
-    lower_red1 = np.array([0, 50, 50])   # Rojo rango 1
-    upper_red1 = np.array([10, 255, 255])
-    lower_red2 = np.array([170, 50, 50])  # Rojo rango 2
-    upper_red2 = np.array([180, 255, 255])
-    # Máscaras para los dos rangos de rojo
-    mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
-    mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    mask_red = cv2.bitwise_or(mask_red1, mask_red2) # Combina la máscara roja con la máscara verde usando cv2.bitwise_and()
-    # Limitar la detección de dados al área del paño verde
-    mask_dados = cv2.bitwise_and(mask_red, mask_green)
-    # Buscar contornos en la máscara resultante
-    contours, _ = cv2.findContours(mask_dados, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) # Encuentra los contornos en la máscara combinada y calcula sus centroides.
-    dados_coords = []
-    for contour in contours:
-        if cv2.contourArea(contour) > 100:  # Filtrar ruido (ajusta el área mínima), Filtra contornos pequeños para evitar el ruido.
-            # Obtener el centroide del contorno
-            M = cv2.moments(contour)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                dados_coords.append((cx, cy))
-    return mask_dados, dados_coords # Devuelve: La máscara de los dados detectados, Una lista de coordenadas de los centroides de los dados.
-
-
-def stopped(queue_coords, umbral=2):
-    """
-    Verifica si las coordenadas de los dados están quietas en la cola.
-    Propósito: Verificar si los dados están quietos basándose en una cola de coordenadas recientes.
-Lógica: Recorre la cola de coordenadas.
-Compara las posiciones actuales y previas para verificar si el desplazamiento es menor que un umbral (2 píxeles por defecto).
-Si algún dado se mueve más allá del umbral, devuelve False.
-    """
-    for i in range(1, len(queue_coords)):
-        for (x1, y1), (x2, y2) in zip(queue_coords[i - 1], queue_coords[i]):
-            if abs(x1 - x2) > umbral or abs(y1 - y2) > umbral:
-                return False
-    return True                 # Devuelve True si los dados están quietos; de lo contrario, False.
-
-
-def get_dados_info(mask_dados, dados_coords, roi_size=100):
-    """
-    Genera un diccionario con la información de cada dado detectado, como su posición y número de pips.
-    Args:
-        mask_dados (np.ndarray): Máscara binaria de los dados.
-        dados_coords (list): Coordenadas de los centroides de los dados.
-        roi_size (int): Tamaño de la ROI alrededor del dado.
-    Returns:
-        list[dict]: Lista de diccionarios con información de cada dado.
-
-    Lógica:
-    Por cada dado:
-        Define una Región de Interés (ROI) alrededor de su centroide.
-        Invierte la máscara para resaltar los pips como blancos.
-        Aplica operaciones morfológicas (cv2.morphologyEx) para limpiar ruido.
-        Usa cv2.connectedComponentsWithStats() para contar los pips basándose en áreas.
-        Filtra componentes pequeños para evitar detectar ruido.
-    Resultado: Devuelve una lista de diccionarios con información de cada dado:
-        Coordenadas del dado.
-        ROI procesado.
-        Número de pips.
-    """
-    dados_info = []
-    for cx, cy in dados_coords:
-        # Definir la ROI alrededor del centroide del dado
-        x_start = max(cx - roi_size // 2, 0)
-        x_end = min(cx + roi_size // 2, mask_dados.shape[1])
-        y_start = max(cy - roi_size // 2, 0)
-        y_end = min(cy + roi_size // 2, mask_dados.shape[0])
-        roi = mask_dados[y_start:y_end, x_start:x_end]
-        # Invertir la imagen para que los pips sean blancos
-        roi_inverted = cv2.bitwise_not(roi)
-        # Aplicar morfología para limpiar ruido
-        kernel = np.ones((3, 3), np.uint8)
-        roi_cleaned = cv2.morphologyEx(roi_inverted, cv2.MORPH_OPEN, kernel)
-        # Detectar componentes conectados
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(roi_cleaned, connectivity=8)
-        # Filtrar componentes por área
-        pip_count = 0
-        for i in range(2, num_labels):  # Ignorar el fondo (label 0) y el dado. Solo quedarse con los puntos.
-            area = stats[i, cv2.CC_STAT_AREA]
-            if area > 20:  # Ajustar según el tamaño de los pips
-                pip_count += 1
-        # Agregar información del dado al diccionario
-        dado = {
-            "coords": (cx, cy),
-            "roi": roi_cleaned,
-            "pips": pip_count
-        }
-        dados_info.append(dado)
-    return dados_info
-
-
-def video_process(video):
-    """
-    Propósito: Procesar el video, detectar dados y devolver el frame donde los dados están quietos.
-    Lógica:
-        Carga el video y procesa cada frame.
-        Detecta la máscara verde en el primer frame.
-        Detecta dados rojos y verifica si hay exactamente 5 dados.
-        Verifica si los dados están quietos usando la función stopped().
-        Devuelve el primer frame donde los dados están quietos.
-    Resultado: Devuelve:
-        El frame original.
-        La máscara de los dados.
-        Las coordenadas de los dados."""
-    i=0
-    cap = cv2.VideoCapture(video)  # Capturar video desde un archivo:
-    queue_coords = []            # Cola de coordenadas de los dados (últimos 5 frames)
-    frame_number = 0
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        # cv2.imwrite(os.path.join("frames", f"frame_{frame_number}.jpg"), frame)
-        frame_number +=1
-        # Detectar el paño verde
-        if frame_number == 1: mask_green = create_green_mask(frame)
-        # # Detectar los dados rojos dentro del paño verde
-        mask_dados, dados_coords = detect_red_dados(frame, mask_green)
-        i+=1
-        print(i)
-        if len(dados_coords) == 5:  # Solo analizamos si hay exactamente 5 dados detectados
-            print(5)
-            queue_coords.append(dados_coords)
-            if len(queue_coords) > 5:  # Mantener la cola con un máximo de 5 elementos
-                queue_coords.pop(0)
-            # Verificar si los dados están quietos
-            if len(queue_coords) == 5 and stopped(queue_coords):
-                # imshow(frame, title='Frame detenido')
-                cap.release()
-                return frame, mask_dados, dados_coords
-    cap.release()
-    return None, None, None
-
-
-def show_results(frame):
-    """
-    Muestra el frame original, la máscara verde, la máscara roja, 
-    y la máscara de los dados (rojo limitado al verde) en subplots que comparten ejes.
-    """
-    # Crear las máscaras
-    mask_green = create_green_mask(frame)
-    mask_red = create_red_mask(frame)
-    mask_dados = cv2.bitwise_and(mask_red, mask_green)
-    # Crear los subplots con ejes compartidos
-    fig, axs = plt.subplots(2, 2, figsize=(12, 8), sharex=True, sharey=True)
-    # Frame original
-    axs[0, 0].imshow(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))  # Convertir de BGR a RGB
-    axs[0, 0].set_title("Frame Original")
-    axs[0, 0].axis("off")
-    # Máscara verde
-    axs[0, 1].imshow(mask_green, cmap='gray')
-    axs[0, 1].set_title("Máscara Verde")
-    axs[0, 1].axis("off")
-    # Máscara roja
-    axs[1, 0].imshow(mask_red, cmap='gray')
-    axs[1, 0].set_title("Máscara Roja")
-    axs[1, 0].axis("off")
-    # Máscara de dados (rojo limitado al verde)
-    axs[1, 1].imshow(mask_dados, cmap='gray')
-    axs[1, 1].set_title("Máscara Dados")
-    axs[1, 1].axis("off")
-    # Ajustar la disposición
-    plt.tight_layout()
-    #plt.show(block=False)
-    plt.show()
-
-
-def show_dados_info(frame, dados_info):
-    """
-    Muestra el frame original y los ROIs de los dados en subplots, incluyendo el número de pips.
-    Args:
-        frame (np.ndarray): Frame original.
-        dados_info (list[dict]): Lista de diccionarios con información de los dados.
-    """
-    num_dados = len(dados_info)
-    total_subplots = num_dados + 1  # Uno adicional para el frame original
-    cols = 3  # Número de columnas en la cuadrícula
-    rows = (total_subplots + cols - 1) // cols  # Calcular filas necesarias
-    fig, axs = plt.subplots(rows, cols, figsize=(15, 5 * rows), sharex=False, sharey=False)
-    axs = axs.ravel()  # Aplanar los ejes para indexarlos fácilmente
-    # Mostrar el frame original en el primer subplot
-    axs[0].imshow(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    axs[0].set_title("Frame Original")
-    axs[0].axis("off")
-    # Mostrar cada ROI de los dados en los subplots restantes
-    for i, dado in enumerate(dados_info, start=1):
-        coords = dado["coords"]
-        pips = dado["pips"]
-        roi = dado["roi"]
-        axs[i].imshow(roi, cmap="gray")
-        axs[i].set_title(f"Dado en {coords} - Pips: {pips}")
-        axs[i].axis("off")
-    # Deshabilitar los subplots sobrantes si hay menos dados que espacios
-    for j in range(total_subplots, len(axs)):
-        axs[j].axis("off")
-    plt.tight_layout()
-    #plt.show(block=False)
-    plt.show()
-
-
-
-'''
-Programa Principal
-'''
-# Parte a
-frame, mask_dados, dados_coords = video_process('tirada_4.mp4')
-show_results(frame)
-# scores = get_dado_scores(mask_dados, dados_coords, roi_size=100)
-dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
-# Llamar a la función para mostrar los ROIs de los dados
-show_dados_info(frame, dados_info)
-
-
-# Parte b
-#--------- grabar video. Una modificación de la función process_video_ y usa todo lo demás
-
-def video_record(input_video, output_video, roi_size=100):
-    """Propósito: Generar un video procesado que resalte los dados y sus características.
-    Lógica:
-        Procesa el video cuadro a cuadro.
-        Dibuja las ROI y las etiquetas con el número de pips para cada dado detectado.
-        Guarda el video resultante.
-    Resultado: Guarda un video donde los dados están identificados y etiquetados con el número de pips."""
-    cap = cv2.VideoCapture(input_video)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-
-    out = cv2.VideoWriter(output_video, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
-
-    queue_coords = []
-    mask_green = None
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        # Detectar la máscara del paño verde solo en el primer frame
-        if mask_green is None:
-            mask_green = create_green_mask(frame)
-        # Detectar los dados
-        mask_dados, dados_coords = detect_red_dados(frame, mask_green)
-        # Si hay exactamente 5 dados, verificamos si están en reposo
-        if len(dados_coords) == 5:
-            queue_coords.append(dados_coords)
-            if len(queue_coords) > 5:
-                queue_coords.pop(0)
-            if len(queue_coords) == 5 and stopped(queue_coords):
-                # Calcular la información de los dados
-                dados_info = get_dados_info(mask_dados, dados_coords, roi_size)
-                # Dibujar bounding boxes y etiquetas
-                for dado in dados_info:
-                    cx, cy = dado["coords"]
-                    pips = dado["pips"]
-                    # Dibujar bounding box
-                    x_start = max(cx - roi_size // 2, 0)
-                    x_end = min(cx + roi_size // 2, frame.shape[1])
-                    y_start = max(cy - roi_size // 2, 0)
-                    y_end = min(cy + roi_size // 2, frame.shape[0])
-                    cv2.rectangle(frame, (x_start, y_start), (x_end, y_end), (255, 0, 0), 2)
-                    # Dibujar etiqueta con el número de pips
-                    # label = f"Pips: {pips}"
-                    label = f"{pips}"
-                    cv2.putText(frame, label, (x_start, y_start - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 4)
-        # Escribir el frame procesado en el archivo de salida
-        out.write(frame)
-        # Mostrar el frame (opcional, para debug)
-        cv2.imshow('Processed Frame', cv2.resize(frame, (width // 3, height // 3)))
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            break
-    cap.release()
-    out.release()
-    cv2.destroyAllWindows()
-
-# Llamar a la función con el video de entrada y el nombre del video de salida
-video_record('tirada_1.mp4', 'Video-Output-Processed1.mp4')
-
-"""
-Flujo principal del programa:
-    Procesa el video (video_process) para detectar el frame donde los dados están quietos.
-    Visualiza los resultados (show_results y show_dados_info).
-    Procesa y graba un nuevo video con la información detallada de los dados (video_record).
-Aspectos importantes:
-    Segmentación por color: Usa el espacio de color HSV para segmentar colores, lo cual es más robusto que RGB en condiciones de iluminación variable.
-    Análisis de movimiento: Usa una cola de posiciones recientes para verificar si los dados están quietos.
-    Análisis morfológico: Limpia las máscaras y filtra ruido antes de extraer características como los pips."""
-
 ####################################################################################################################################################
                                                                     ## PRUEBAS - DESGLOSANDO CÓDIGO ##
 ####################################################################################################################################################
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-import os
-import math
 
 video = "tirada_1.mp4"
 cap = cv2.VideoCapture(video)  # Capturar video desde un archivo:
@@ -667,8 +335,113 @@ plt.title("Rojo Resaltado")
 plt.imshow(cv2.cvtColor(rojo_img, cv2.COLOR_RGB2BGR))  # Convertir a BGR para visualizar correctamente
 plt.show()
 
+#----------------------------------------------------------------
+"""¿Cómo encontrar valores HSV para realizar seguimiento?
+Esta es una pregunta común que se encuentra en stackoverflow.com . Es muy simple y puedes usar la misma función, cv.cvtColor() . En lugar de pasar una imagen, 
+simplemente pasa los valores BGR que deseas. Por ejemplo, para encontrar el valor HSV de red"""
+video = "tirada_1.mp4"
+cap = cv2.VideoCapture(video)  # Capturar video desde un archivo:
+ret, frame = cap.read()
+img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+verde = np.uint8([[[0,255,0]]]) # espacio de color BGR (utilizado por OpenCV): 0: Intensidad del azul.
+                                                                             # 255: Máxima intensidad del verde.
+                                                                             # 0: Intensidad del rojo.
+# OpenCV utiliza el formato BGR por defecto, no RGB. Así que este arreglo corresponde a una imagen de 1 píxel donde solo el componente verde está activo
+#rojo = np.uint8([[[0, 0, 255]]]) # rojo
+
+img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
+hsv_verde = cv2.cvtColor(verde,cv2.COLOR_BGR2HSV) # Blue, green, Red = BGR
+print(hsv_verde) # [[[60 255 255]]]
+#Ahora toma [H-10, 100,100] y [H+10, 255, 255] como límite inferior y límite superior respectivament
+
+
+# Crear un píxel verde y rojo en formato BGR
+azul = np.uint8([[[255, 0, 0]]])   # azul en BGR
+verde = np.uint8([[[0, 255, 0]]])  # Verde en BGR
+rojo = np.uint8([[[0, 0, 255]]])   # Rojo en BGR
+
+# Convertir ambos al espacio HSV
+azul_hsv = cv2.cvtColor(azul, cv2.COLOR_BGR2HSV)
+verde_hsv = cv2.cvtColor(verde, cv2.COLOR_BGR2HSV)
+rojo_hsv = cv2.cvtColor(rojo, cv2.COLOR_BGR2HSV)
+
+print(f"Azul en HSV: {azul_hsv[0][0]}") # [120 255 255]   120 en OpenCV ≈ 240° (Azul).
+print(f"Verde en HSV: {verde_hsv[0][0]}") # [ 60 255 255]  60 en OpenCV ≈ 120° (Verde).
+print(f"Rojo en HSV: {rojo_hsv[0][0]}") # [  0 255 255]    0 en OpenCV = 0° (Rojo).
+
+"""
+El círculo cromático es una representación visual de los colores dispuestos en un círculo, que muestra las relaciones entre ellos. 
+En el espacio de color HSV utilizado por OpenCV, el H (Hue o matiz) determina la posición del color en este círculo cromático.
+
+Concepto Básico del Círculo Cromático
+    Hue (Matiz): Representa el color puro y se mide en grados de un círculo cromático (0° a 360°).
+    0°:  Rojo.
+    120°: Verde.
+    240°: Azul.
+
+En OpenCV, este rango está escalado de 0 a 179 para optimización:
+    0 en OpenCV = 0° (Rojo).
+    60 en OpenCV ≈ 120° (Verde).
+    120 en OpenCV ≈ 240° (Azul).
+
+La representación completa del círculo cromático en OpenCV queda como:
+    0-29: Rojo.
+    30-89: Amarillo a verde.
+    90-149: Verde a cian.
+    150-179: Azul a magenta."""
+
+# Crear un círculo cromático --------------------------------------------------------------------------------
+hue = np.linspace(0, 179, 180, dtype=np.uint8)  # Valores de H
+hue = np.tile(hue, (180, 1))  # Expandir en 2D
+sat = np.full_like(hue, 255)  # Saturación máxima
+val = np.full_like(hue, 255)  # Brillo máximo
+
+hsv_circle = cv2.merge([hue, sat, val])  # Combinar en espacio HSV
+rgb_circle = cv2.cvtColor(hsv_circle, cv2.COLOR_HSV2RGB)  # Convertir a RGB
+
+plt.imshow(rgb_circle)
+plt.title("Círculo Cromático HSV")
+plt.axis('off')
+plt.show()
+
+
+
 ## FUNCION CUADRADOS ##################################################################################################################
 # https://docs.opencv.org/4.x/dd/d49/tutorial_py_contour_features.html
+"""TEORIA OpencV
+img = cv.imread('star.jpg', cv2.IMREAD_GRAYSCALE)
+assert img is not None, "file could not be read, check with os.path.exists()"
+ret,thresh = cv2.threshold(img,127,255,0)
+contours,hierarchy = cv2.findContours(thresh, 1, 2)
+ 
+cnt = contours[0]
+M = cv2.moments(cnt)
+print( M )
+
+A partir de estos momentos, puedes extraer datos útiles como área, centroide, etc:
+    *El centroide se proporciona mediante las relaciones:
+cx = int(M[ 'm10' ]/M[ 'm00' ])
+cy = int(M[ 'm01' ]/M[ 'm00' ])
+
+El área del contorno se proporciona mediante la función cv.contourArea() o a partir de los momentos, M['m00'] :
+área = cv2.áreaContorno (cnt)
+
+   *Perímetro del contorno
+También se denomina longitud de arco. Se puede averiguar mediante la función cv.arcLength() . 
+El segundo argumento especifica si la forma es un contorno cerrado (si se pasa como True) o simplemente una curva.
+perímetro = cv2.arcLength (cnt, True )
+
+    * Aproximación de contornos
+Aproxima una forma de contorno a otra forma con un número menor de vértices según la precisión que especifiquemos. 
+Es una implementación del algoritmo de Douglas-Peucker . Consulte la página de Wikipedia para ver el algoritmo y la demostración.
+
+Para entender esto, supongamos que estás intentando encontrar un cuadrado en una imagen, pero debido a algunos problemas en la imagen,
+ no obtuviste un cuadrado perfecto, sino una "mala forma" (como se muestra en la primera imagen a continuación). Ahora puedes usar esta función para aproximar la forma. En este caso, el segundo argumento se llama épsilon, que es la distancia máxima desde el contorno hasta el contorno aproximado. 
+Es un parámetro de precisión. Se necesita una selección inteligente de épsilon para obtener el resultado correcto.
+épsilon = 0,1* cv2.arcLength (cnt, True )
+aprox = cv2.approxPolyDP (cnt,épsilon, Verdadero )
+"""
+
 def es_cuadrado(contorno):
     """ La función es_cuadrado(contorno) detecta si un contorno tiene una forma aproximada de cuadrado basándose en el número de vértices del contorno. 
     Si el contorno tiene 4 vértices, devuelve True, sugiriendo que el contorno es cuadrado o rectangular. Si el contorno tiene más o menos de 4 vértices, devuelve False.
@@ -714,20 +487,85 @@ def es_cuadrado(contorno):
     return False  # Si no tiene 4 vértices, no es cuadrado
 
 
-# Función para detectar contornos cuadrados
-def detectar_contornos_cuadrados(frame):
-    
+# Función para detectar contornos cuadrados ------------------------------------------------------------------------------------
+def detectar_contornos_cuadrados(frame): # tiene como objetivo identificar y devolver una lista de contornos que representan formas cuadradas en una imagen.
+    """ Imagen suavizada pasa al umbral adaptativo.
+        Contornos detectados en la imagen binaria.
+        Filtrado para seleccionar solo contornos cuadrados.
+    """
+    # Suavizar la imagen para reducir el ruido
+    frame_suavizado = cv2.GaussianBlur(frame, (5, 5), 0)  # Esto aplica un filtro gaussiano con un kernel de 5×5 para reducir el ruido sin perder demasiados detalles.
+    # Umbralización Adaptativa: Aplicar umbral adaptativo para resaltar contornos 
+    _, umbral = cv2.threshold(frame_suavizado, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU) # Esto convierte la imagen en binaria usando el método de Otsu, separando claramente los objetos del fondo.
 
-    # Aplicar umbral adaptativo para resaltar contornos
-    _, umbral = cv2.threshold(frame, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # Encontrar contornos en la imagen umbralizada
-    contornos, _ = cv2.findContours(umbral, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Detección de Contornos:: Encontrar contornos en la imagen umbralizada
+    contornos, _ = cv2.findContours(umbral, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) # Encuentra los contornos externos de los objetos en la imagen binaria.
 
     # Filtrar contornos cuadrados aproximados
-    
-    contornos_cuadrados = [cnt for cnt in contornos if es_cuadrado(cnt) and cv2.contourArea(cnt) > 50*50]
+    contornos_cuadrados = [
+        cnt for cnt in contornos if es_cuadrado(cnt) and cv2.contourArea(cnt) > 50*50
+    ] # Área Mínima: Excluye contornos con áreas menores a 50×50 píxeles para evitar detectar ruido.
     return contornos_cuadrados
+
+# FUNCION RECORTAR CONTORNOS --------------------------------------------------------------------------------------
+def recortarxcontorno(frame, contornos):
+    mask = np.zeros_like(frame)
+    recortes = []
+    for contorno in contornos:
+        mask = np.zeros_like(frame)
+        # Dibuja el contorno en la máscara
+        cv2.drawContours(mask, [contorno], -1, 255, thickness=cv2.FILLED)
+        # Aplica la máscara a la imagen original
+        dado_recortado = cv2.bitwise_and(frame,frame, mask=mask)
+        #cv2.imshow('Solo contorno',redimensionar(dado_recortado))
+        recortes.append(dado_recortado)
+    return recortes
+
+
+
+
+#FUNCION CONTAR DADOS ----------------------------------------------------------------------------------------------------
+def contarDados(recorte):
+    _, umbral = cv2.threshold(recorte, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))
+    
+    # Aplicar erosión
+    imagen_erosionada = cv2.erode(umbral, kernel, iterations=1)
+    #cv2.imshow('Frame erode', redimensionar(imagen_erosionada))
+    # Encuentra componentes conectados
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(imagen_erosionada, 4)
+
+    # Especifica el umbral de área
+    area_threshold = (20, 150)  # UMBRAL DE AREA
+
+    # Filtra las componentes conectadas basadas en el umbral de área
+    filtered_labels = []
+    filtered_stats = []
+    filtered_centroids = []
+
+    # Mostrar la imagen con los puntos y bounding boxes
+    #cv2.imshow('Puntos y Bounding Boxes', redimensionar(recorte))
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
+    #plt.imshow(recorte)
+    for label in range(1, num_labels):  # comienza desde 1 para excluir el fondo (etiqueta 0)
+        area = stats[label, cv2.CC_STAT_AREA]
+
+        if area > area_threshold[0] and area < area_threshold[1]:
+            x, y, w, h, _ = stats[label]
+            relacion_aspecto = float(w) / h
+            if relacion_aspecto >=  0.7 and relacion_aspecto <= 1.3:
+                filtered_labels.append(label)
+                filtered_stats.append(stats[label])
+                filtered_centroids.append(centroids[label])
+            # Dibujar el bounding box
+                #cv2.rectangle(recorte, (x, y), (x + w, y + h), (255, 0, 0), 2)
+                #cv2.rectangle(umbral, (x, y), (x + w, y + h), (255, 0, 0), 2)
+                plt.gca().add_patch(plt.Rectangle((x, y), w, h, linewidth=2, edgecolor='b', facecolor='none'))
+                #plt.imshow(recorte)
+    #plt.show()
+
+    return len(filtered_centroids)
 
 
 
