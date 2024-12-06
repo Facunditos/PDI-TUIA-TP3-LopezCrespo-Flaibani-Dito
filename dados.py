@@ -108,18 +108,13 @@ def detect_red_dados(frame, mask_green):
     """
     mask_red = create_red_mask(frame)
     mask_dados= cv2.bitwise_and(mask_green, mask_red)
-    # mask_blurred = cv2.GaussianBlur(mask_dados, (3, 3), 0)
-    # mask_dados_fill = imfillhole(mask_dados)
-    # k2 = 5
-    # mask_dados_fill1= cv2.morphologyEx(mask_dados, cv2.MORPH_OPEN, (k2, k2))
-    k2 = 5
-    mask_dados_fill = cv2.morphologyEx(mask_dados, cv2.MORPH_CLOSE, (k2, k2))
+    kernel = np.ones((5, 5), np.uint8)
+    mask_dados_fill = cv2.morphologyEx(mask_dados, cv2.MORPH_CLOSE, kernel)
 
     # Buscar contornos en la máscara resultante
     contours, _ = cv2.findContours(mask_dados_fill, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     # Calcula las áreas de todos los contornos
     areas = [cv2.moments(contour)["m00"] for contour in contours]
-    # Cálculo auxiliar inicial para estimar los rangos del área de un dado
     # Calcula el área promedio
     if len(areas) > 0:  # Verifica que haya contornos
         area_promedio = sum(areas) / len(areas)
@@ -319,13 +314,10 @@ def show_dados_info(frame, dados_info):
 def evaluar_generala(dados_info):
     # Extraer los valores (pips) de los dados
     valores_dados = [dado["pips"] for dado in dados_info]
-    
     # Contar las ocurrencias de cada valor
     conteo = Counter(valores_dados)
-    
     # Ordenar las ocurrencias en una lista [(valor, cantidad), ...]
     conteo_ordenado = conteo.most_common()
-    
     # Verificar combinaciones del juego
     if len(conteo) == 1:  # Todos los dados tienen el mismo valor
         return "¡Generala!"
@@ -339,7 +331,7 @@ def evaluar_generala(dados_info):
         return "No se logró una combinación especial."
 
 
-def video_record(input_video, output_video, frame_number_start, frame_number_end, dados_coords, roi_size=100):
+def video_record(input_video, output_video, frame_number_start, frame_number_end, dados_info, roi_size=100):
     frame_number = 0
     cap = cv2.VideoCapture(input_video)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -383,8 +375,80 @@ def video_record(input_video, output_video, frame_number_start, frame_number_end
 '''
 Programa Principal
 '''
-# Parte a
-frame, frame_number_start, frame_number_end, mask_dados, dados_coords = video_process('tirada_4.mp4')
+'''
+ITEM A
+'''
+# Crear un diccionario para almacenar los datos de los videos
+videos_info = {}
+# Definir el directorio donde están los videos
+video_dir = "videos"
+
+# Iterar sobre los archivos en la carpeta "videos"
+for video_file in os.listdir(video_dir):  # Lista los archivos en la carpeta "videos"
+    if video_file.endswith(".mp4"):  # Filtrar solo archivos MP4
+        video_path = os.path.join(video_dir, video_file)  # Crear la ruta completa
+        print(video_path)
+        print(f"Procesando video: {video_path}")
+        # Procesar el video
+        frame, frame_number_start, frame_number_end, mask_dados, dados_coords = video_process(video_path)
+        # Mostrar resultados del procesamiento
+        # imshow(frame)
+        # show_results(frame, mask_dados)
+        # Obtener información de los dados
+        dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
+        # Mostrar información de los dados
+        # show_dados_info(frame, dados_info)
+        # Evaluar el resultado del juego
+        game_result = evaluar_generala(dados_info)
+        print(f"Resultado del juego para {video_file}: {game_result}")
+        # Guardar la información en el diccionario
+        videos_info[video_file] = {
+            "frame_number_start": frame_number_start,
+            "frame_number_end": frame_number_end,
+            "dados_info": dados_info,
+            "game_result": game_result,
+        }
+
+# Mostrar el diccionario completo
+print("Información de los videos procesados:")
+for video, info in videos_info.items():
+    print(f"{video}: {info}")
+
+'''
+ITEM B
+'''
+# Definir la carpeta para guardar los videos procesados
+output_dir = "videos_procesados"
+# Crear la carpeta si no existe
+os.makedirs(output_dir, exist_ok=True)
+
+# Iterar sobre los datos de videos_info para grabar un nuevo video para cada entrada
+for video_file, info in videos_info.items():
+    input_video = os.path.join(video_dir, video_file)  # Ruta completa del video original
+    output_video = os.path.join(output_dir, f"Processed_{video_file}")  # Ruta completa del archivo de salida
+
+    # Extraer información necesaria
+    frame_number_start = info["frame_number_start"]
+    frame_number_end = info["frame_number_end"]
+    dados_info = info["dados_info"]
+
+    # Llamar a la función para procesar y grabar el nuevo video
+    print(f"Grabando nuevo video: {output_video}")
+    video_record(
+        input_video,
+        output_video,
+        frame_number_start,
+        frame_number_end,
+        dados_info,
+        roi_size=100
+    )
+
+
+#---------------------
+#Código para pruebas y mostrar gráficos
+# Item A
+video = 'tirada_2.mp4'
+frame, frame_number_start, frame_number_end, mask_dados, dados_coords = video_process(video)
 imshow(frame)
 show_results(frame, mask_dados)
 dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
@@ -394,8 +458,8 @@ show_dados_info(frame, dados_info)
 resultado = evaluar_generala(dados_info)
 print(f"Resultado del juego: {resultado}")
 
-# Parte b
+# Item B
 # Llamar a la función con el video de entrada y el nombre del video de salida
-video_record('tirada_1.mp4', 'Video-Output-Processed1.mp4', frame_number_start, frame_number_end, dados_coords, roi_size=100)
+video_record(video, 'Video-Output-Processed_2.mp4', frame_number_start, frame_number_end, dados_info, roi_size=100)
 
 
