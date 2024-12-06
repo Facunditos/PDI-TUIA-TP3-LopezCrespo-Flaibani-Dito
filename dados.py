@@ -58,6 +58,19 @@ def imfillhole(img: np.ndarray)-> np.ndarray:
     return img_fh
 
 
+# --- Version 2 ------------------------------------------------
+# Utilizando cv2.floodFill()
+# SI rellena los huecos que tocan los bordes
+def imfillhole_v2(img):
+    img_flood_fill = img.copy().astype("uint8")             # Genero la imagen de salida
+    h, w = img.shape[:2]                                    # Genero una máscara necesaria para cv2.floodFill()
+    mask = np.zeros((h+2, w+2), np.uint8)                   # https://docs.opencv.org/2.4/modules/imgproc/doc/miscellaneous_transformations.html#floodfill
+    cv2.floodFill(img_flood_fill, mask, (0,0), 255)         # Relleno o inundo la imagen.
+    img_flood_fill_inv = cv2.bitwise_not(img_flood_fill)    # Tomo el complemento de la imagen inundada --> Obtenog SOLO los huecos rellenos.
+    img_fh = img | img_flood_fill_inv                       # La salida es un OR entre la imagen original y los huecos rellenos.
+    return img_fh 
+
+
 def create_green_mask(frame):
     """
     Detecta la zona del paño verde y genera una máscara binaria.
@@ -105,26 +118,25 @@ def detect_red_dados(frame, mask_green):
     # Buscar contornos en la máscara resultante
     contours, _ = cv2.findContours(mask_dados_fill, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     # Calcula las áreas de todos los contornos
-    areas = [cv2.contourArea(contour) for contour in contours]
-
+    areas = [cv2.moments(contour)["m00"] for contour in contours]
     # Cálculo auxiliar inicial para estimar los rangos del área de un dado
     # Calcula el área promedio
     if len(areas) > 0:  # Verifica que haya contornos
         area_promedio = sum(areas) / len(areas)
-        print(f"El área promedio de los contornos es: {area_promedio} {len(contours)}")
+        print(f"El área promedio de los contornos es: {area_promedio} Nro. de componentes: {len(contours)}")
     else:
         print("No se encontraron contornos.")
 
     dados_coords = []
     for contour in contours:
-        if 2000 <= cv2.contourArea(contour) <= 6500:  # Filtrar ruido (ajusta el área mínima)
+        M = cv2.moments(contour)
+        if (3500 <= M["m00"] <= 5500):  # Filtrar ruido (ajusta el área mínima)
             # Obtener el centroide del contorno
-            M = cv2.moments(contour)
-            # if M["m00"] != 0:
             cx = int(M["m10"] / M["m00"])
             cy = int(M["m01"] / M["m00"])
             dados_coords.append((cx, cy))
-    return mask_dados, dados_coords
+            print(f'Coords: {dados_coords} - Área: {M["m00"]}')
+    return mask_dados_fill, dados_coords
 
 
 def stopped(queue_coords, umbral=2):
@@ -159,7 +171,7 @@ def get_dados_info(mask_dados, dados_coords, roi_size=100):
         # Invertir la imagen para que los pips sean blancos
         roi_inverted = cv2.bitwise_not(roi)
         # Aplicar morfología para limpiar ruido
-        kernel = np.ones((3, 3), np.uint8)
+        kernel = np.ones((5, 5), np.uint8)
         roi_cleaned = cv2.morphologyEx(roi_inverted, cv2.MORPH_OPEN, kernel)
         # Detectar componentes conectados
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(roi_cleaned, connectivity=8)
@@ -240,7 +252,7 @@ def video_process(video):
     return None, -1, -1, None, None
 
 
-def show_results(frame):
+def show_results(frame, mask_dados):
     """
     Muestra el frame original, la máscara verde, la máscara roja, 
     y la máscara de los dados (rojo limitado al verde) en subplots que comparten ejes.
@@ -248,7 +260,7 @@ def show_results(frame):
     # Crear las máscaras
     mask_green = create_green_mask(frame)
     mask_red = create_red_mask(frame)
-    mask_dados = cv2.bitwise_and(mask_red, mask_green)
+    # mask_dados = cv2.bitwise_and(mask_red, mask_green)
     # Crear los subplots con ejes compartidos
     fig, axs = plt.subplots(2, 2, figsize=(12, 8), sharex=True, sharey=True)
     # Frame original
@@ -372,9 +384,9 @@ def video_record(input_video, output_video, frame_number_start, frame_number_end
 Programa Principal
 '''
 # Parte a
-frame, frame_number_start, frame_number_end, mask_dados, dados_coords = video_process('tirada_2.mp4')
+frame, frame_number_start, frame_number_end, mask_dados, dados_coords = video_process('tirada_4.mp4')
 imshow(frame)
-show_results(frame)
+show_results(frame, mask_dados)
 dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
 # Llamar a la función para mostrar los ROIs de los dados
 show_dados_info(frame, dados_info)
@@ -385,4 +397,5 @@ print(f"Resultado del juego: {resultado}")
 # Parte b
 # Llamar a la función con el video de entrada y el nombre del video de salida
 video_record('tirada_1.mp4', 'Video-Output-Processed1.mp4', frame_number_start, frame_number_end, dados_coords, roi_size=100)
+
 
