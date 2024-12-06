@@ -1,14 +1,18 @@
 Desde la línea de comandos:
 
 * git clone https://github.com/Facunditos/PDI-TUIA-TP3-LopezCrespo-Flaibani-Dito.git
-* cd PDI-TUIA-TP3-LopezCrespo-Flaibani-Dito       # Cambia al directorio del proyecto
-* python -m venv venv             # Crea el entorno virtual
+
+ # Cambia al directorio del proyecto
+* cd PDI-TUIA-TP3-LopezCrespo-Flaibani-Dito 
+
+# Crea el entorno virtual
+* python -m venv venv             
 * .\venv\Scripts\activate         # Activa el entorno virtual
 * pip install -r requirements.txt # Instala las dependencias
 
 
 Descripción:
-Lecura de video mp4 de tiradas de dados y procesamiento para saber los valores sacados.
+Lectura de video mp4 de tiradas de dados y procesamiento para saber los valores sacados.
 
 Ejecutar desde terminal:
 python main.py
