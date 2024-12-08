@@ -79,6 +79,8 @@ def create_green_mask(frame):
     # Definir límites para el color verde en HSV (ajusta según el video)
     lower_green = np.array([35, 50, 50])  # H, S, V mínimos
     upper_green = np.array([85, 255, 255])  # H, S, V máximos
+    # lower_green = np.array([72, 153, 50])  # H, S, V mínimos
+    # upper_green = np.array([90, 255, 255])  # H, S, V máximos
     # Crear máscara binaria del paño verde
     mask = cv2.inRange(hsv, lower_green, upper_green)
     mask_fill = imfillhole(mask)
@@ -95,6 +97,10 @@ def create_red_mask(frame):
     upper_red1 = np.array([10, 255, 255])
     lower_red2 = np.array([170, 50, 50])  # Rojo rango 2
     upper_red2 = np.array([180, 255, 255])
+    # lower_red1 = np.array([0, 117, 50])   # Rojo rango 1
+    # upper_red1 = np.array([10, 255, 255])
+    # lower_red2 = np.array([170, 117, 50])  # Rojo rango 2
+    # upper_red2 = np.array([180, 255, 255])
     # Máscaras para los dos rangos de rojo
     mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
     mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
@@ -132,6 +138,7 @@ def detect_red_dados(frame, mask_green):
             dados_coords.append((cx, cy))
             print(f'Coords: {dados_coords} - Área: {M["m00"]}')
     return mask_dados_fill, dados_coords
+
 
 
 def stopped(queue_coords, umbral=2):
@@ -202,7 +209,6 @@ def video_process(video):
         ret, frame = cap.read()
         if not ret:
             break
-        # cv2.imwrite(os.path.join("frames", f"frame_{frame_number}.jpg"), frame)
         # Detectar el paño verde
         if frame_number == 0: mask_green = create_green_mask(frame)
         # Detectar los dados rojos dentro del paño verde
@@ -358,6 +364,8 @@ def video_record(input_video, output_video, frame_number_start, frame_number_end
                 # label = f"Pips: {pips}"
                 label = f"Dado {i+1}: {pips}"
                 cv2.putText(frame, label, (x_start, y_start - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), 2)
+                # cv2.putText(frame, label, (x_start, y_start - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), border_thickness=3, lineType=cv2.LINE_AA)
+                # cv2.putText(frame, label, (x_start, y_start - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), text_thickness=5, lineType=cv2.LINE_AA)
 
         # Escribir el frame procesado en el archivo de salida
         out.write(frame)
@@ -444,12 +452,15 @@ for video_file, info in videos_info.items():
     )
 
 
+
+
 #---------------------
 #Código para pruebas y mostrar gráficos
 # Item A
-video = 'tirada_2.mp4'
+video = 'videos/tirada_1.mp4'
+video_file = 'tirada_1.mp4'
 frame, frame_number_start, frame_number_end, mask_dados, dados_coords = video_process(video)
-imshow(frame)
+imshow(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 show_results(frame, mask_dados)
 dados_info = get_dados_info(mask_dados, dados_coords, roi_size=100)
 # Llamar a la función para mostrar los ROIs de los dados
@@ -460,6 +471,7 @@ print(f"Resultado del juego: {resultado}")
 
 # Item B
 # Llamar a la función con el video de entrada y el nombre del video de salida
-video_record(video, 'Video-Output-Processed_2.mp4', frame_number_start, frame_number_end, dados_info, roi_size=100)
+video_record(video, f"Processed_{video_file}", frame_number_start, frame_number_end, dados_info, roi_size=100)
+
 
 
