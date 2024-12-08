@@ -163,94 +163,193 @@ def determinar_mascara_roja(ruta_frame:str)->np.array:
     h,s,v = obtener_canales_img_hsv(ruta_frame)
     ix_h1 = np.logical_and(h > 180 * .9, h < 180) # ¿Por qué no alcanza con definir un límite inferior
     ix_h2 = h < 180 * 0.04 
-    ix_s = np.logical_and(s > 256 * 0.46, s < 256) # Se utiliza este canal para excluir la mano
+    ix_s = np.logical_and(s > 256 * 0.55, s < 256) # Se utiliza este canal para excluir la mano
     mascara_roja = np.logical_and(np.logical_or(ix_h1, ix_h2), ix_s)
     return mascara_roja
 
+
+def coindicen_centroides(cent_1,cent_2):
+    """cent_1 es el del objeto que se está analizando"""
+    margen = 1
+    x_c_obj_1 = cent_1[0]
+    y_c_obj_1 = cent_1[1]
+    x_c_obj_2 = cent_1[0]
+    y_c_obj_2 = cent_2[1]
+    if (
+        x_c_obj_1 > x_c_obj_2-margen and 
+        x_c_obj_1 < x_c_obj_2+margen and 
+        y_c_obj_1 > y_c_obj_2-margen and 
+        y_c_obj_1 < y_c_obj_2+margen
+    ):
+        return True
+    else:
+        return False    
+  
+def detectar_valor_dado(ruta_img,*coor_cropping)->None:
+    img = cv2.imread(ruta_img)
+    x,y,ancho,alto = coor_cropping
+    x = np.int64(x)
+    y = np.int64(y)
+    ancho = np.int64(ancho)
+    alto = np.int64(alto)
+    img_dado = img[y:y+alto,x:x+ancho]
+    img_dado = cv2.cvtColor(img_dado, cv2.COLOR_BGR2RGB)
+    img_dado_hsv = cv2.cvtColor(img_dado, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
+    h, s, v = cv2.split(img_dado_hsv)
+    ix_s = np.logical_and(s > 256 * 0.85, s < 256).astype('uint8')
+    print(ix_s)
+    connectivity = 8
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(ix_s, connectivity, cv2.CV_32S)
+    plt.figure()
+    ax1=plt.subplot(221); plt.imshow(img_dado)
+    plt.title(f'valor:{ num_labels-1}')
+    plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(ix_s, cmap='gray'), plt.title('mascara')
+    plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
+    plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
+    plt.show(block=False)
+    return  h,s,v
+    
+    img_frame = cv2.imread(ruta_img,cv2.IMREAD_GRAYSCALE)
+    x,y,ancho,alto = coor_cropping
+    x = np.int64(x)
+    y = np.int64(y)
+    ancho = np.int64(ancho)
+    alto = np.int64(alto)
+    img_dado = img_frame[y:y+alto,x:x+ancho]
+    _,img_dado_mascara = cv2.threshold(img_dado,185,255,cv2.THRESH_BINARY)
+    connectivity = 8
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(img_dado_mascara, connectivity, cv2.CV_32S)
+    imshow(img_dado_mascara,title=f'valor dado: {num_labels-1}')
+
+def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,obj_coor_cent:np.array,datos_frames:dict,cent_fij:dict,cent_obs:dict):
+    # Datos del bounding-box
+    x = obj_b_b[0]
+    y = obj_b_b[1]
+    ancho = obj_b_b[2]
+    alto = obj_b_b[3]
+    img_obj = mask[y:y+alto,x:x+ancho]
+    x = round(float(obj_b_b[0]),2)
+    y = round(float(obj_b_b[1]),2)
+    ancho = round(float(obj_b_b[2]),2)
+    alto = round(float(obj_b_b[3]),2)
+    contours, hierarchy = cv2.findContours(img_obj, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    cnt = contours[0]
+    area = cv2.contourArea(cnt)
+    if n_frame ==73:
+        print('area',area)
+    # Si el are no se corresponde con la propia de un dado se retorna
+    if area<15 or area>30:
+        return
+    q_dados_fijos = len(cent_fij)
+    if ( q_dados_fijos == 5 ):
+    # Si ya se identificaron los 5 dados quietos únicamente interesa ver si el obj es un dado quieto
+        for coor_cent_dado in cent_fij.keys():
+            if coindicen_centroides(obj_coor_cent,coor_cent_dado):
+                datos_dado = cent_fij[coor_cent_dado]
+                datos_frames[n_frame].append(datos_dado)
+                return 
+    else:
+        # Primero se comprueba si el objeto es un dado quieto
+        for coor_cent_dado in cent_fij.keys():
+            if coindicen_centroides(obj_coor_cent,coor_cent_dado):
+                datos_dado = cent_fij[coor_cent_dado]
+                datos_frames[n_frame].append(datos_dado) 
+                return 
+        # Si no lo es se observa su situación en la colección de dados candidatos
+        cent_ya_observado = False
+        for coor_cent_dado_posible in cent_obs.keys():
+            # Se comprueba si el objeto ya es un dado candidato
+            if coindicen_centroides(obj_coor_cent,coor_cent_dado_posible):
+                cent_obs[coor_cent_dado_posible] += 1 # Se actualiza su frecuencia
+                freq = cent_obs[coor_cent_dado_posible]
+                # En caso que ya se compruebe que en 3 frames se haya repetido el centroide el dado pasa de dado candidato a dado quieto
+                if freq == 4:
+                    punto_1 = (x,y)
+                    punto_2 = (x+ancho,y+alto)
+                    detectar_valor_dado(ruta_frame,x,y,ancho,alto)
+                    datos_dado = [punto_1,punto_2,'dado_num']
+                    datos_frames[n_frame].append(datos_dado)
+                    cent_fij[tuple(coor_cent_dado_posible)] = datos_dado
+                    #imshow(img_obj)
+                    return 
+                else:
+                    cent_ya_observado = True
+                    break
+        # Si el objeto no está en la colección, se agrega
+        if not cent_ya_observado:
+            x_c = round(float(obj_coor_cent[0]),2)
+            y_c = round(float(obj_coor_cent[1]),2)
+            cent_obs[(x_c,y_c)] = 1
+        punto_1 = (x,y)
+        punto_2 = (x+ancho,y+alto)
+        datos_dado_mov = [punto_1,punto_2,None]
+        datos_frames[n_frame].append(datos_dado_mov)
+    # imshow(mask)
+    # print(datos_frames)
+    # print(cent_fij)
+    # print(cent_obs)
+    # print(x,y,ancho,alto)
+    #print(obj_coor_cent)
+
 def detectar_dados(video:str):
-    info_frames = {}
     file_vid_list = video.split('.')
     file_vid_sin_ext = file_vid_list[0]
     dir_frames_entrada = path.join(dir_frames,file_vid_sin_ext)
-    frames = [frame for frame in listdir(dir_frames_entrada)]     
+    frames = [frame for frame in listdir(dir_frames_entrada)]  
+    # info frame: La clave es un número de frame y el valor una lista de listas 
+    # con información sobre los bounding box a mostrar. Ej. {32:[[p1,p2,etiqueta]]}
+    info_frames = {} 
+    # centroides_quietos: La clave es la coordenada del centroide de un dado quieto 
+    # el dado está quieto cuando esa coordenada se repitió en al menos 3 frame 
+    # el valor es una lista con info sobre el bounding box y la etiqueta
+    centroides_quietos = {}
+    # centroides_candidatos: La clave es la coordenada del centroide de un dado  
+    # el valor es la cantidad de veces que se repitió esa coordenada entre los frames
+    centroides_candidatos = {}   
     primer_frame = frames[0]# Utilizo el primer frame para determinar la máscara verde
     path_primer_frame = path.join(dir_frames_entrada,primer_frame)
     mascara_verde = determinar_mascara_verde(path_primer_frame)
-    coor_dados_quietos = None # cada elemento guarda las coordenadas de 5 objetos, existe igualdad en estas coordenadas
-    q_frames_dados_quietos = 1
-    stats_dados_quietos = None
     for ix_f,frame in enumerate(frames): # Esta lista de frames excluye al primero de ellos, utilizado para la máscara verde
+        info_frames[ix_f] = [] # paso fundamental para después usar el método append para agregar bounding box
         path_frame = path.join(dir_frames_entrada,frame)
         mascara_roja = determinar_mascara_roja(path_frame)
         mascara_elementos = np.logical_and(mascara_verde,mascara_roja).astype('uint8')
-        #mascara_elementos_fh = imfillhole(mascara_elementos)
-        # ----- Componentes 8 conectadas ---------
         connectivity = 8
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mascara_elementos, connectivity, cv2.CV_32S)
-        for ix_l in range(1,num_labels):
-            estadistica = stats[ix_l,:]
-            x = estadistica[0]
-            y = estadistica[1]
-            ancho = estadistica[2]
-            alto = estadistica[3]
-            area_obj = estadistica[4]
-            img_obj = mascara_elementos[y:y+alto,x:x+ancho]
-            contours, hierarchy = cv2.findContours(img_obj, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-            cnt = contours[0]
-            area = cv2.contourArea(cnt)
-            if area>15 and area<30:
-                punto_1 = (x,y)
-                punto_2 = (x+ancho,y+alto)
-                caja = [punto_1,punto_2,None]
-                if ix_f not in info_frames:
-                    info_frames[ix_f] = [caja]
-                else:
-                    info_frames[ix_f].append(caja)
+        if (True):
+            for ix_l in range(1,num_labels):
+                info_obj_b_b = stats[ix_l,:-1]
+                info_obj_cent = centroids[ix_l,:]
+                analizar_objeto(
+                    mask=mascara_elementos,
+                    n_frame=ix_f,
+                    ruta_frame=path_frame,
+                    datos_frames=info_frames,
+                    cent_fij=centroides_quietos,
+                    cent_obs=centroides_candidatos,
+                    obj_b_b=info_obj_b_b,
+                    obj_coor_cent=info_obj_cent
+                )
+    print('info_frames')
+    print(info_frames)
+    print('\t-------------')
+    print('centroides quietos')
+    print(centroides_quietos)
+    print('\t-------------')
+    print('centroides candidatos')
+    print(centroides_candidatos)
+    print('-------------')
     return info_frames
             
-                    perimeter = cv2.arcLength(cnt,True)
-                    f_p = round(area / (perimeter**2),4) if perimeter != 0 else 0
-                    if ix_f>64 and ix_f<100:
-                        f_p
-                    if (f_p>0.0697 and f_p<0.0740):
-                        x_adaptado = x*3
-                        y_adaptado = y*3
-                        punto_1 = (x,y)
-                        punto_2 = (x+ancho,y+alto)
-                        caja = [punto_1,punto_2,f_p]
-                        if ix_f not in info_frames:
-                            info_frames[ix_f] =[caja]
-                        else:
-                            info_frames[ix_f].append(caja)
-        
-                    """ if (num_labels!=6): 
-                        continue
-                    else: # Interesan analizar aquellas máscaras que reconocen exactamente 6 elementos (fondo + 5 objetos)
-                        stats_objetos =stats[1:,:] # Se excluye el fondo
-                        coor_objs_frame_act = []
-                        for stats_obj in stats_objetos:
-                            esq_sup_izq = (stats_obj[0],stats_obj[1])
-                            coor_objs_frame_act.append(esq_sup_izq)
-                        coor_objs_frame_anterior = coor_dados_quietos
-                        if q_frames_dados_quietos==3: # Se asume que si en 4 frames hay coincidencia de coor se correspoden con los dados quietos
-                            marcar_dados(frame,img,stats_dados_quietos)
-                            break
-                        elif coor_objs_frame_anterior==coor_objs_frame_act:
-                            q_frames_dados_quietos+=1
-                        else:
-                            coor_dados_quietos = coor_objs_frame_act
-                            stats_dados_quietos = stats_objetos
-                            q_frames_dados_quietos = 1
-                """
 
-for video in videos_entradas:
+for video in videos_entradas[:]:
     #leer_video(video)
     datos_frames = detectar_dados(video)
-    grabar_videos(video,datos_frames)
+    #grabar_videos(video,datos_frames)
 
+input('enter')
 
-
-frames_vid_1_dir = './frames/tirada_1/'
+""" frames_vid_1_dir = './frames/tirada_1/'
 # --- Espacio de color HSV ----------------------------------------------
 # Utilizo el primer frame para determinar la máscara verde
 img = cv2.imread(frames_vid_1_dir+'frame_68.jpg')
@@ -313,5 +412,5 @@ g[mascara_dado != True] = 0
 b[mascara_dado != True] = 0
 dado_img = cv2.merge((r, g, b))
 plt.figure(), plt.imshow(dado_img), plt.show(block=False)
-
+ """
 
