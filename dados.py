@@ -62,12 +62,11 @@ def grabar_videos(nombre_video:str,info_frames:dict):
     while (cap.isOpened()): # Verifica si el video se abrió correctamente.
         ret, frame = cap.read()  # 'ret' indica si la lectura fue exitosa (True/False) y 'frame' contiene el contenido del frame si la lectura fue exitosa.    
         if ret == True:
-            if (contador_frame in info_frames):
-                for datos_caja in info_frames[contador_frame]:
-                    p1,p2,etiqueta = datos_caja
-                    p1_adaptado = tuple([coor*3 for coor in p1])
-                    p2_adaptado = tuple([coor*3 for coor in p2])
-                    cv2.rectangle(frame, p1_adaptado, p2_adaptado, (255,255,0), 4) 
+            for datos_caja in info_frames[contador_frame]:
+                p1,p2,etiqueta = datos_caja
+                p1_adaptado = tuple([int(coor)*3 for coor in p1])
+                p2_adaptado = tuple([int(coor)*3 for coor in p2])
+                cv2.rectangle(frame, p1_adaptado, p2_adaptado, (255,255,0), 4) 
             frame_show = cv2.resize(frame, dsize=(int(width/3), int(height/3))) # Redimensiona el frame capturado.
             cv2.imshow('Frame', frame_show) # Muestra el frame redimensionado.
             out.write(frame)   # Escribe el frame original (sin redimensionar) en el archivo de salida 'Video-Output.mp4'. IMPORTANTE: El tamaño del frame debe coincidir con el tamaño especificado al crear 'out'.
@@ -163,14 +162,14 @@ def determinar_mascara_roja(ruta_frame:str)->np.array:
     h,s,v = obtener_canales_img_hsv(ruta_frame)
     ix_h1 = np.logical_and(h > 180 * .9, h < 180) # ¿Por qué no alcanza con definir un límite inferior
     ix_h2 = h < 180 * 0.04 
-    ix_s = np.logical_and(s > 256 * 0.55, s < 256) # Se utiliza este canal para excluir la mano
+    ix_s = np.logical_and(s > 256 * 0.29, s < 256) # Se utiliza este canal para excluir la mano
     mascara_roja = np.logical_and(np.logical_or(ix_h1, ix_h2), ix_s)
     return mascara_roja
 
 
 def coindicen_centroides(cent_1,cent_2):
     """cent_1 es el del objeto que se está analizando"""
-    margen = 1
+    margen = 1.5
     x_c_obj_1 = cent_1[0]
     y_c_obj_1 = cent_1[1]
     x_c_obj_2 = cent_1[0]
@@ -185,41 +184,11 @@ def coindicen_centroides(cent_1,cent_2):
     else:
         return False    
   
-def detectar_valor_dado(ruta_img,*coor_cropping)->None:
-    img = cv2.imread(ruta_img)
-    x,y,ancho,alto = coor_cropping
-    x = np.int64(x)
-    y = np.int64(y)
-    ancho = np.int64(ancho)
-    alto = np.int64(alto)
-    img_dado = img[y:y+alto,x:x+ancho]
-    img_dado = cv2.cvtColor(img_dado, cv2.COLOR_BGR2RGB)
-    img_dado_hsv = cv2.cvtColor(img_dado, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
-    h, s, v = cv2.split(img_dado_hsv)
-    ix_s = np.logical_and(s > 256 * 0.85, s < 256).astype('uint8')
-    print(ix_s)
-    connectivity = 8
-    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(ix_s, connectivity, cv2.CV_32S)
-    plt.figure()
-    ax1=plt.subplot(221); plt.imshow(img_dado)
-    plt.title(f'valor:{ num_labels-1}')
-    plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(ix_s, cmap='gray'), plt.title('mascara')
-    plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
-    plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
-    plt.show(block=False)
-    return  h,s,v
-    
-    img_frame = cv2.imread(ruta_img,cv2.IMREAD_GRAYSCALE)
-    x,y,ancho,alto = coor_cropping
-    x = np.int64(x)
-    y = np.int64(y)
-    ancho = np.int64(ancho)
-    alto = np.int64(alto)
-    img_dado = img_frame[y:y+alto,x:x+ancho]
-    _,img_dado_mascara = cv2.threshold(img_dado,185,255,cv2.THRESH_BINARY)
-    connectivity = 8
-    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(img_dado_mascara, connectivity, cv2.CV_32S)
-    imshow(img_dado_mascara,title=f'valor dado: {num_labels-1}')
+def detectar_valor_dado(img_dado)->None:
+    B = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    img_dado_clausura = cv2.morphologyEx(img_dado, cv2.MORPH_CLOSE, B)
+    contours, hierarchy = cv2.findContours(img_dado_clausura, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE) 
+    imshow(img_dado,title=f'puntaje:{len(contours)-1}')
 
 def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,obj_coor_cent:np.array,datos_frames:dict,cent_fij:dict,cent_obs:dict):
     # Datos del bounding-box
@@ -235,8 +204,6 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
     contours, hierarchy = cv2.findContours(img_obj, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     cnt = contours[0]
     area = cv2.contourArea(cnt)
-    if n_frame ==73:
-        print('area',area)
     # Si el are no se corresponde con la propia de un dado se retorna
     if area<15 or area>30:
         return
@@ -263,11 +230,12 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
                 cent_obs[coor_cent_dado_posible] += 1 # Se actualiza su frecuencia
                 freq = cent_obs[coor_cent_dado_posible]
                 # En caso que ya se compruebe que en 3 frames se haya repetido el centroide el dado pasa de dado candidato a dado quieto
-                if freq == 4:
+                if freq == 6:
                     punto_1 = (x,y)
                     punto_2 = (x+ancho,y+alto)
-                    detectar_valor_dado(ruta_frame,x,y,ancho,alto)
-                    datos_dado = [punto_1,punto_2,'dado_num']
+                    puntaje = len(contours)-1
+                    print(puntaje)
+                    datos_dado = [punto_1,punto_2,puntaje]
                     datos_frames[n_frame].append(datos_dado)
                     cent_fij[tuple(coor_cent_dado_posible)] = datos_dado
                     #imshow(img_obj)
@@ -292,6 +260,7 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
     #print(obj_coor_cent)
 
 def detectar_dados(video:str):
+    print(video)
     file_vid_list = video.split('.')
     file_vid_sin_ext = file_vid_list[0]
     dir_frames_entrada = path.join(dir_frames,file_vid_sin_ext)
@@ -342,12 +311,25 @@ def detectar_dados(video:str):
     return info_frames
             
 
-for video in videos_entradas[:]:
+for video in videos_entradas:
     #leer_video(video)
     datos_frames = detectar_dados(video)
-    #grabar_videos(video,datos_frames)
+    grabar_videos(video,datos_frames)
 
+img = cv2.imread('./frames/tirada_4/frame_57.jpg')
+img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
+h, s, v = cv2.split(img_hsv)
+plt.figure()
+ax1=plt.subplot(221); plt.imshow(img)
+plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(h, cmap='gray'), plt.title('Canal H')
+plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
+plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
+plt.show(block=False)
 input('enter')
+
+
+
 
 """ frames_vid_1_dir = './frames/tirada_1/'
 # --- Espacio de color HSV ----------------------------------------------
@@ -372,7 +354,7 @@ mascara_verde = np.logical_and(ix_h, ix_s)
 
 
 # Analizo un frame en el cual estén presentes los dados
-img = cv2.imread(frames_vid_1_dir+'frame_78.jpg')
+img = cv2.imread('.frames/tirada_2/frame_57.jpg')
 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
 h, s, v = cv2.split(img_hsv)
