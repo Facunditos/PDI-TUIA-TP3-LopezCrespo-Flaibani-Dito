@@ -7,4 +7,5 @@ Desde la línea de comandos:
 * pip install -r requirements.txt # Instala las dependencias
 
 **dados.py**
-El programa consiste en analizar una tirada de dados para detectar el momento en que los dados quedan quietos, luego se determinan sus respectivos valores, para así determinar el resultado de la jugada. El script se encarga de analizar todos aquellos videos almacenados en la carpeta *videos* y de guardar los videos resultante del análsis en la carpeta *videos_procesados*. Por consola se imprime el resultado de la jugada. 
+
+El programa consiste en analizar una tirada de dados para detectar el momento en que los dados quedan quietos, luego se calculan sus respectivos valores, para así determinar el resultado de la jugada. El script se encarga de analizar todos aquellos videos almacenados en la carpeta *videos* y de guardar los videos resultante del análsis en la carpeta *videos_procesados*. Por consola se imprime el resultado de la jugada. 
