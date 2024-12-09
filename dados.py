@@ -62,13 +62,22 @@ def grabar_videos(nombre_video:str,info_frames:dict):
     while (cap.isOpened()): # Verifica si el video se abrió correctamente.
         ret, frame = cap.read()  # 'ret' indica si la lectura fue exitosa (True/False) y 'frame' contiene el contenido del frame si la lectura fue exitosa.    
         if ret == True:
+            col_mov = (0, 165, 255)
+            col_quieto = (255,0,0)
             for datos_caja in info_frames[contador_frame]:
                 p1,p2,etiqueta = datos_caja
                 p1_adaptado = tuple([int(coor)*3 for coor in p1])
                 p2_adaptado = tuple([int(coor)*3 for coor in p2])
-                cv2.rectangle(frame, p1_adaptado, p2_adaptado, (255,255,0), 4) 
+                color = col_mov if etiqueta is None else col_quieto
+                thickness = 8 if etiqueta is None else 4
+                cv2.rectangle(frame, p1_adaptado, p2_adaptado, color, thickness) 
+                if etiqueta is not None:
+                    pos = (p1_adaptado[0],p1_adaptado[1]-10)
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    fontScale = 1
+                    cv2.putText(frame, str(etiqueta),pos, font, fontScale, color, thickness, cv2.LINE_AA)
             frame_show = cv2.resize(frame, dsize=(int(width/3), int(height/3))) # Redimensiona el frame capturado.
-            cv2.imshow('Frame', frame_show) # Muestra el frame redimensionado.
+            #cv2.imshow('Frame', frame_show) # Muestra el frame redimensionado.
             out.write(frame)   # Escribe el frame original (sin redimensionar) en el archivo de salida 'Video-Output.mp4'. IMPORTANTE: El tamaño del frame debe coincidir con el tamaño especificado al crear 'out'.
             contador_frame +=1
             if cv2.waitKey(25) & 0xFF == ord('q'): # Espera 25 milisegundos a que se presione una tecla. Si se presiona 'q' se rompe el bucle y se cierra la ventana.
@@ -140,7 +149,7 @@ def obtener_canales_img_hsv(ruta_frame:str)->np.array:
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
     h, s, v = cv2.split(img_hsv)
-    """ plt.figure()
+    """    plt.figure()
     ax1=plt.subplot(221); plt.imshow(img)
     plt.title(f'{ruta_frame}')
     plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(h, cmap='gray'), plt.title('Canal H')
@@ -212,6 +221,7 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
     # Si ya se identificaron los 5 dados quietos únicamente interesa ver si el obj es un dado quieto
         for coor_cent_dado in cent_fij.keys():
             if coindicen_centroides(obj_coor_cent,coor_cent_dado):
+                print(area)
                 datos_dado = cent_fij[coor_cent_dado]
                 datos_frames[n_frame].append(datos_dado)
                 return 
@@ -230,11 +240,12 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
                 cent_obs[coor_cent_dado_posible] += 1 # Se actualiza su frecuencia
                 freq = cent_obs[coor_cent_dado_posible]
                 # En caso que ya se compruebe que en 3 frames se haya repetido el centroide el dado pasa de dado candidato a dado quieto
-                if freq == 6:
+                if freq == 9:
                     punto_1 = (x,y)
                     punto_2 = (x+ancho,y+alto)
                     puntaje = len(contours)-1
                     print(puntaje)
+                    imshow(img_obj)
                     datos_dado = [punto_1,punto_2,puntaje]
                     datos_frames[n_frame].append(datos_dado)
                     cent_fij[tuple(coor_cent_dado_posible)] = datos_dado
@@ -264,7 +275,8 @@ def detectar_dados(video:str):
     file_vid_list = video.split('.')
     file_vid_sin_ext = file_vid_list[0]
     dir_frames_entrada = path.join(dir_frames,file_vid_sin_ext)
-    frames = [frame for frame in listdir(dir_frames_entrada)]  
+    q_frames = len(listdir(dir_frames_entrada))
+    frames = ['frame_'+f'{n}'+'.jpg' for n in range(q_frames)]
     # info frame: La clave es un número de frame y el valor una lista de listas 
     # con información sobre los bounding box a mostrar. Ej. {32:[[p1,p2,etiqueta]]}
     info_frames = {} 
@@ -289,6 +301,7 @@ def detectar_dados(video:str):
             for ix_l in range(1,num_labels):
                 info_obj_b_b = stats[ix_l,:-1]
                 info_obj_cent = centroids[ix_l,:]
+                
                 analizar_objeto(
                     mask=mascara_elementos,
                     n_frame=ix_f,
@@ -311,12 +324,12 @@ def detectar_dados(video:str):
     return info_frames
             
 
-for video in videos_entradas:
+for video in videos_entradas[:1]:
     #leer_video(video)
     datos_frames = detectar_dados(video)
     grabar_videos(video,datos_frames)
 
-img = cv2.imread('./frames/tirada_4/frame_57.jpg')
+""" img = cv2.imread('./frames/tirada_1/frame_60.jpg')
 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
 h, s, v = cv2.split(img_hsv)
@@ -325,7 +338,7 @@ ax1=plt.subplot(221); plt.imshow(img)
 plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(h, cmap='gray'), plt.title('Canal H')
 plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
 plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
-plt.show(block=False)
+plt.show(block=False) """
 input('enter')
 
 
