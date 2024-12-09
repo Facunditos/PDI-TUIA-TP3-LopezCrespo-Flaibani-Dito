@@ -72,7 +72,7 @@ def grabar_videos(nombre_video:str,info_frames:dict):
                 thickness = 8 if etiqueta is None else 4
                 cv2.rectangle(frame, p1_adaptado, p2_adaptado, color, thickness) 
                 if etiqueta is not None:
-                    pos = (p1_adaptado[0],p1_adaptado[1]-10)
+                    pos = (p1_adaptado[0]-20,p1_adaptado[1]-10)
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     fontScale = 2
                     cv2.putText(frame, etiqueta,pos, font, fontScale, color, thickness, cv2.LINE_AA)
@@ -195,15 +195,15 @@ def coindicen_centroides(cent_1,cent_2):
   
 def leyenda_dado(q_dados_quieto:int,valor_dado:int)->str:
     if (q_dados_quieto==0):
-        return f'd A: {valor_dado}'
+        return f'd A:{valor_dado}'
     elif (q_dados_quieto==1):
-        return f'd B: {valor_dado}'
+        return f'd B:{valor_dado}'
     elif (q_dados_quieto==2):
-        return f'd C: {valor_dado}'
+        return f'd C:{valor_dado}'
     elif (q_dados_quieto==3):
-        return f'd D: {valor_dado}'
+        return f'd D:{valor_dado}'
     else :
-        return f'd E: {valor_dado}'
+        return f'd E:{valor_dado}'
 
 def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,obj_coor_cent:np.array,datos_frames:dict,cent_fij:dict,cent_obs:dict):
     # Datos del bounding-box
@@ -220,9 +220,9 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
     cnt = contours[0]
     area = cv2.contourArea(cnt)
     # Si el are no se corresponde con la propia de un dado se retorna
-    if area<15 or area>30:
-        return
     q_dados_fijos = len(cent_fij)
+    if q_dados_fijos<5 and (area<15 or area>30):
+        return
     if ( q_dados_fijos == 5 ):
     # Si ya se identificaron los 5 dados quietos únicamente interesa ver si el obj es un dado quieto
         for coor_cent_dado in cent_fij.keys():
