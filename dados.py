@@ -74,8 +74,8 @@ def grabar_videos(nombre_video:str,info_frames:dict):
                 if etiqueta is not None:
                     pos = (p1_adaptado[0],p1_adaptado[1]-10)
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    fontScale = 1
-                    cv2.putText(frame, str(etiqueta),pos, font, fontScale, color, thickness, cv2.LINE_AA)
+                    fontScale = 2
+                    cv2.putText(frame, etiqueta,pos, font, fontScale, color, thickness, cv2.LINE_AA)
             frame_show = cv2.resize(frame, dsize=(int(width/3), int(height/3))) # Redimensiona el frame capturado.
             #cv2.imshow('Frame', frame_show) # Muestra el frame redimensionado.
             out.write(frame)   # Escribe el frame original (sin redimensionar) en el archivo de salida 'Video-Output.mp4'. IMPORTANTE: El tamaño del frame debe coincidir con el tamaño especificado al crear 'out'.
@@ -193,11 +193,17 @@ def coindicen_centroides(cent_1,cent_2):
     else:
         return False    
   
-def detectar_valor_dado(img_dado)->None:
-    B = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    img_dado_clausura = cv2.morphologyEx(img_dado, cv2.MORPH_CLOSE, B)
-    contours, hierarchy = cv2.findContours(img_dado_clausura, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE) 
-    imshow(img_dado,title=f'puntaje:{len(contours)-1}')
+def leyenda_dado(q_dados_quieto:int,valor_dado:int)->str:
+    if (q_dados_quieto==0):
+        return f'd A: {valor_dado}'
+    elif (q_dados_quieto==1):
+        return f'd B: {valor_dado}'
+    elif (q_dados_quieto==2):
+        return f'd C: {valor_dado}'
+    elif (q_dados_quieto==3):
+        return f'd D: {valor_dado}'
+    else :
+        return f'd E: {valor_dado}'
 
 def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,obj_coor_cent:np.array,datos_frames:dict,cent_fij:dict,cent_obs:dict):
     # Datos del bounding-box
@@ -244,9 +250,8 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
                     punto_1 = (x,y)
                     punto_2 = (x+ancho,y+alto)
                     puntaje = len(contours)-1
-                    print(puntaje)
-                    imshow(img_obj)
-                    datos_dado = [punto_1,punto_2,puntaje]
+                    leyenda = leyenda_dado(q_dados_fijos,puntaje)
+                    datos_dado = [punto_1,punto_2,leyenda]
                     datos_frames[n_frame].append(datos_dado)
                     cent_fij[tuple(coor_cent_dado_posible)] = datos_dado
                     #imshow(img_obj)
@@ -324,8 +329,8 @@ def detectar_dados(video:str):
     return info_frames
             
 
-for video in videos_entradas[:1]:
-    #leer_video(video)
+for video in videos_entradas:
+    leer_video(video)
     datos_frames = detectar_dados(video)
     grabar_videos(video,datos_frames)
 
