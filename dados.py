@@ -42,7 +42,7 @@ def leer_video(video:str)->None:
     cap.release() # Libera el objeto 'cap', cerrando el archivo.
     cv2.destroyAllWindows() # Cierra todas las ventanas abiertas.
 
-def grabar_videos(nombre_video:str,info_frames:dict):
+def grabar_videos(nombre_video:str,info_frames:dict,info_jugada:dict):
     makedirs(dir_videos_salida, exist_ok = True)
     ruta_file_vid_entrada = path.join(dir_videos_entrada,nombre_video)
     ruta_file_vid_salida = path.join(dir_videos_salida,nombre_video)
@@ -72,11 +72,18 @@ def grabar_videos(nombre_video:str,info_frames:dict):
                 thickness = 8 if etiqueta is None else 4
                 cv2.rectangle(frame, p1_adaptado, p2_adaptado, color, thickness) 
                 if etiqueta is not None:
-                    media_y = (p1_adaptado[1] + p2_adaptado[1])//2
-                    pos = (p1_adaptado[0]-160,media_y)
+                    pos = (p1_adaptado[0]-160,p1_adaptado[1])
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     fontScale = 2
                     cv2.putText(frame, etiqueta,pos, font, fontScale, color, thickness, cv2.LINE_AA)
+            
+            etiqueta_res = info_jugada[contador_frame]
+            if etiqueta_res is not None:
+                pos = (width//4,height-360)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                fontScale = 2
+                cv2.putText(frame, etiqueta_res,pos, font, fontScale, color, thickness, cv2.LINE_AA)
+            
             frame_show = cv2.resize(frame, dsize=(int(width/3), int(height/3))) # Redimensiona el frame capturado.
             #cv2.imshow('Frame', frame_show) # Muestra el frame redimensionado.
             out.write(frame)   # Escribe el frame original (sin redimensionar) en el archivo de salida 'Video-Output.mp4'. IMPORTANTE: El tamaño del frame debe coincidir con el tamaño especificado al crear 'out'.
@@ -88,27 +95,6 @@ def grabar_videos(nombre_video:str,info_frames:dict):
     cap.release() # Libera el objeto 'cap', cerrando el archivo.
     out.release() # Libera el objeto 'out',  cerrando el archivo.
     cv2.destroyAllWindows() # Cierra todas las ventanas abiertas.
-
-def imreconstruct(marker, mask, kernel=None):
-    if kernel==None:
-        kernel = np.ones((3,3), np.uint8)
-    while True:
-        expanded = cv2.dilate(marker, kernel)                               # Dilatacion
-        expanded_intersection = cv2.bitwise_and(src1=expanded, src2=mask)   # Interseccion
-        if (marker == expanded_intersection).all():                         # Finalizacion?
-            break                                                           #
-        marker = expanded_intersection        
-    return expanded_intersection
-
-def imfillhole(img):
-    # img: Imagen binaria de entrada. Valores permitidos: 0 (False), 255 (True).
-    mask = np.zeros_like(img)                                                   # Genero mascara para...
-    mask = cv2.copyMakeBorder(mask[1:-1,1:-1], 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=int(255)) # ... seleccionar los bordes.
-    marker = cv2.bitwise_not(img, mask=mask)                # El marcador lo defino como el complemento de los bordes.
-    img_c = cv2.bitwise_not(img)                            # La mascara la defino como el complemento de la imagen.
-    img_r = imreconstruct(marker=marker, mask=img_c)        # Calculo la reconstrucción R_{f^c}(f_m)
-    img_fh = cv2.bitwise_not(img_r)                         # La imagen con sus huecos rellenos es igual al complemento de la reconstruccion.
-    return img_fh
 
 
 
@@ -128,22 +114,6 @@ def imshow(img, new_fig=True, title=None, color_img=False, blocking=False, color
     if new_fig:        
         plt.show(block=blocking)
 
-def marcar_dados(frame,img,stats_dados):
-    fig, ax = plt.subplots(figsize=(10, 10))
-    ax.imshow(img)
-    plt.title(f'{frame}')
-    # Dibujar los rectángulos sobre los dados
-    for stat_dado in stats_dados:
-        x = stat_dado[0]
-        y = stat_dado[1]
-        ancho = stat_dado[2]
-        alto = stat_dado[3]
-        valor = 'dado'
-        rect = Rectangle((x, y), ancho, alto,edgecolor=(255/255, 255/255, 0), linewidth=1, facecolor='none')
-        ax.add_patch(rect)
-        ax.text(x, y - 6, str(valor), fontsize=6, weight='bold')
-    ax.axis('off')
-    plt.show(block=False)
 
 def obtener_canales_img_hsv(ruta_frame:str)->np.array:
     img = cv2.imread(ruta_frame)
@@ -254,7 +224,6 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
                     datos_dado = [punto_1,punto_2,leyenda]
                     datos_frames[n_frame].append(datos_dado)
                     cent_fij[tuple(coor_cent_dado_posible)] = datos_dado
-                    imshow(img_obj)
                     return 
                 else:
                     cent_ya_observado = True
@@ -268,12 +237,51 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
         punto_2 = (x+ancho,y+alto)
         datos_dado_mov = [punto_1,punto_2,None]
         datos_frames[n_frame].append(datos_dado_mov)
-    # imshow(mask)
-    # print(datos_frames)
-    # print(cent_fij)
-    # print(cent_obs)
-    # print(x,y,ancho,alto)
-    #print(obj_coor_cent)
+
+
+def determinar_resultado(info_recuadros):
+    valores_dados = []
+    for info_recuadro in info_recuadros:
+        p1,p2,etiqueta = info_recuadro
+        valor_dado = int(etiqueta[-1])
+        valores_dados.append(valor_dado)
+
+    valores_dados_ord_asc = sorted(valores_dados)
+    n1,n2,n3,n4,n5 = valores_dados_ord_asc
+    etiqueta_resultado = ''
+    if (n1==n2==n3==n4==n5):
+        etiqueta_resultado = 'Generala: 60 pntos'
+    elif (n1==n2==n3==n4) or (n2==n3==n4==n5):
+        etiqueta_resultado = 'Poker: 45 puntos'  
+    elif ( (n1==n2==n3) and (n4==n5) ) or ( (n1==n2) and (n3==n3==n5) ):
+        etiqueta_resultado = 'Full: 35 puntos'
+    elif (n2-n1==1) and (n3-n2==1) and (n4-n3==1) and (n5-n4==1):
+        etiqueta_resultado = 'Escalera: 25 puntos'    
+    else:
+        n_max = valores_dados_ord_asc[4]
+        freq = valores_dados_ord_asc.count(n_max)
+        etiqueta_resultado = f'Puntos: {n_max*freq} al {n_max}' 
+    return etiqueta_resultado    
+
+def etiquetar_resultado(informacion_frames:dict)->dict:
+    info_resultado_jugada = {}
+    n_ultimo_frame = len(informacion_frames)
+    n_frame_dados_quietos = -1
+    resultado_jugada = None
+    for n_frame,info_recuadros in informacion_frames.items():
+        info_resultado_jugada[n_frame] = None
+        q_recuadros = len(info_recuadros)
+        etiquetas_recuadros = [recuadro[2] for recuadro in info_recuadros]
+        if q_recuadros<5 or None in etiquetas_recuadros:
+            continue
+        else: 
+            n_frame_dados_quietos = n_frame
+            resultado_jugada = determinar_resultado(info_recuadros)
+            break
+    for n_frame in range(n_frame_dados_quietos,n_ultimo_frame):
+        info_resultado_jugada[n_frame] = resultado_jugada
+    return info_resultado_jugada        
+
 
 def detectar_dados(video:str):
     print(video)
@@ -317,33 +325,30 @@ def detectar_dados(video:str):
                     obj_b_b=info_obj_b_b,
                     obj_coor_cent=info_obj_cent
                 )
-    print('info_frames')
+
+    info_resultado_jugada = etiquetar_resultado(info_frames)
+    """ print('info_frames')
     print(info_frames)
-    print('\t-------------')
+    print('/t-------------')
     print('centroides quietos')
     print(centroides_quietos)
     print('\t-------------')
     print('centroides candidatos')
     print(centroides_candidatos)
-    print('-------------')
-    return info_frames
+    print('-------------') """
+    return info_frames,info_resultado_jugada
             
 
-for video in videos_entradas:
-    #leer_video(video)
-    datos_frames = detectar_dados(video)
-    grabar_videos(video,datos_frames)
+def main(lista_videos:list)->None:
+    for video in lista_videos:
+        #leer_video(video)
+        datos_frames,datos_jugada = detectar_dados(video)
+        grabar_videos(video,datos_frames,datos_jugada)
 
-img = cv2.imread('./frames/tirada_3/frame_68.jpg')
-img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
-h, s, v = cv2.split(img_hsv)
-plt.figure()
-ax1=plt.subplot(221); plt.imshow(img)
-plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(h, cmap='gray'), plt.title('Canal H')
-plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
-plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
-plt.show(block=False)
+
+main(videos_entradas)
+  
+
 input('enter')
 
 
