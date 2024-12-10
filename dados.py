@@ -79,9 +79,9 @@ def grabar_videos(nombre_video:str,info_frames:dict,info_jugada:dict):
             
             etiqueta_res = info_jugada[contador_frame]
             if etiqueta_res is not None:
-                pos = (width//4,height-360)
+                pos = (5,height-480)
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                fontScale = 2
+                fontScale = 4
                 cv2.putText(frame, etiqueta_res,pos, font, fontScale, color, thickness, cv2.LINE_AA)
             
             frame_show = cv2.resize(frame, dsize=(int(width/3), int(height/3))) # Redimensiona el frame capturado.
