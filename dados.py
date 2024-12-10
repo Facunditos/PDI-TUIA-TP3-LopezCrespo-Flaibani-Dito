@@ -215,7 +215,7 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
             if coindicen_centroides(obj_coor_cent,coor_cent_dado_posible):
                 cent_obs[coor_cent_dado_posible] += 1 # Se actualiza su frecuencia
                 freq = cent_obs[coor_cent_dado_posible]
-                # En caso que ya se compruebe que en 3 frames se haya repetido el centroide el dado pasa de dado candidato a dado quieto
+                # En caso que ya se compruebe que en 6 frames se haya repetido el centroide el dado pasa de dado candidato a dado quieto
                 if freq == 6:
                     punto_1 = (x,y)
                     punto_2 = (x+ancho,y+alto)
