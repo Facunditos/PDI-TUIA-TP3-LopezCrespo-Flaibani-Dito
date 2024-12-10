@@ -72,7 +72,8 @@ def grabar_videos(nombre_video:str,info_frames:dict):
                 thickness = 8 if etiqueta is None else 4
                 cv2.rectangle(frame, p1_adaptado, p2_adaptado, color, thickness) 
                 if etiqueta is not None:
-                    pos = (p1_adaptado[0]-20,p1_adaptado[1]-10)
+                    media_y = (p1_adaptado[1] + p2_adaptado[1])//2
+                    pos = (p1_adaptado[0]-160,media_y)
                     font = cv2.FONT_HERSHEY_SIMPLEX
                     fontScale = 2
                     cv2.putText(frame, etiqueta,pos, font, fontScale, color, thickness, cv2.LINE_AA)
@@ -178,7 +179,7 @@ def determinar_mascara_roja(ruta_frame:str)->np.array:
 
 def coindicen_centroides(cent_1,cent_2):
     """cent_1 es el del objeto que se está analizando"""
-    margen = 1.5
+    margen = 2
     x_c_obj_1 = cent_1[0]
     y_c_obj_1 = cent_1[1]
     x_c_obj_2 = cent_1[0]
@@ -195,15 +196,15 @@ def coindicen_centroides(cent_1,cent_2):
   
 def leyenda_dado(q_dados_quieto:int,valor_dado:int)->str:
     if (q_dados_quieto==0):
-        return f'd A:{valor_dado}'
+        return f'd_A:{valor_dado}'
     elif (q_dados_quieto==1):
-        return f'd B:{valor_dado}'
+        return f'd_B:{valor_dado}'
     elif (q_dados_quieto==2):
-        return f'd C:{valor_dado}'
+        return f'd_C:{valor_dado}'
     elif (q_dados_quieto==3):
-        return f'd D:{valor_dado}'
+        return f'd_D:{valor_dado}'
     else :
-        return f'd E:{valor_dado}'
+        return f'd_E:{valor_dado}'
 
 def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,obj_coor_cent:np.array,datos_frames:dict,cent_fij:dict,cent_obs:dict):
     # Datos del bounding-box
@@ -227,7 +228,6 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
     # Si ya se identificaron los 5 dados quietos únicamente interesa ver si el obj es un dado quieto
         for coor_cent_dado in cent_fij.keys():
             if coindicen_centroides(obj_coor_cent,coor_cent_dado):
-                print(area)
                 datos_dado = cent_fij[coor_cent_dado]
                 datos_frames[n_frame].append(datos_dado)
                 return 
@@ -246,7 +246,7 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
                 cent_obs[coor_cent_dado_posible] += 1 # Se actualiza su frecuencia
                 freq = cent_obs[coor_cent_dado_posible]
                 # En caso que ya se compruebe que en 3 frames se haya repetido el centroide el dado pasa de dado candidato a dado quieto
-                if freq == 9:
+                if freq == 6:
                     punto_1 = (x,y)
                     punto_2 = (x+ancho,y+alto)
                     puntaje = len(contours)-1
@@ -254,7 +254,7 @@ def analizar_objeto(mask:np.array,ruta_frame:str,n_frame:int,obj_b_b:np.array,ob
                     datos_dado = [punto_1,punto_2,leyenda]
                     datos_frames[n_frame].append(datos_dado)
                     cent_fij[tuple(coor_cent_dado_posible)] = datos_dado
-                    #imshow(img_obj)
+                    imshow(img_obj)
                     return 
                 else:
                     cent_ya_observado = True
@@ -330,11 +330,11 @@ def detectar_dados(video:str):
             
 
 for video in videos_entradas:
-    leer_video(video)
+    #leer_video(video)
     datos_frames = detectar_dados(video)
     grabar_videos(video,datos_frames)
 
-""" img = cv2.imread('./frames/tirada_1/frame_60.jpg')
+img = cv2.imread('./frames/tirada_3/frame_68.jpg')
 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
 h, s, v = cv2.split(img_hsv)
@@ -343,7 +343,7 @@ ax1=plt.subplot(221); plt.imshow(img)
 plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(h, cmap='gray'), plt.title('Canal H')
 plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
 plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
-plt.show(block=False) """
+plt.show(block=False)
 input('enter')
 
 
