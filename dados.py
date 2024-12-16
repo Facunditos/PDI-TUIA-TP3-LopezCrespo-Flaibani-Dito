@@ -120,13 +120,6 @@ def obtener_canales_img_hsv(ruta_frame:str)->np.array:
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
     h, s, v = cv2.split(img_hsv)
-    """    plt.figure()
-    ax1=plt.subplot(221); plt.imshow(img)
-    plt.title(f'{ruta_frame}')
-    plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(h, cmap='gray'), plt.title('Canal H')
-    plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
-    plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
-    plt.show(block=False) """
     return  h,s,v
 
 def determinar_mascara_verde(ruta_primer_frame:str)->np.array:
@@ -135,6 +128,7 @@ def determinar_mascara_verde(ruta_primer_frame:str)->np.array:
     ix_h = np.logical_and(h > 180 * .4, h < 180 * .5)
     ix_s = np.logical_and(s > 256 * 0.6, s < 256)
     mascara_verde = np.logical_and(ix_h, ix_s)
+
     return mascara_verde
 
 
@@ -266,7 +260,7 @@ def determinar_resultado(info_recuadros):
 def etiquetar_resultado(informacion_frames:dict)->dict:
     info_resultado_jugada = {}
     n_ultimo_frame = len(informacion_frames)
-    n_frame_dados_quietos = -1
+    n_frame_dados_quietos = 0
     resultado_jugada = None
     for n_frame,info_recuadros in informacion_frames.items():
         info_resultado_jugada[n_frame] = None
@@ -327,15 +321,18 @@ def detectar_dados(video:str):
                 )
 
     info_resultado_jugada = etiquetar_resultado(info_frames)
-    """ print('info_frames')
-    print(info_frames)
-    print('/t-------------')
-    print('centroides quietos')
-    print(centroides_quietos)
-    print('\t-------------')
     print('centroides candidatos')
     print(centroides_candidatos)
-    print('-------------') """
+    print('\n-------------')
+    print('centroides quietos')
+    print(centroides_quietos)
+    print('\n-------------')
+    print('info_frames')
+    print(info_frames)
+    print('\n-------------')
+    print('info_resultado_jugada')
+    print(info_resultado_jugada)
+    print('\n-------------')
     return info_frames,info_resultado_jugada
             
 
@@ -343,13 +340,27 @@ def main(lista_videos:list)->None:
     for video in lista_videos:
         #leer_video(video)
         datos_frames,datos_jugada = detectar_dados(video)
-        grabar_videos(video,datos_frames,datos_jugada)
+        #grabar_videos(video,datos_frames,datos_jugada)
 
 
-main(videos_entradas)
-  
+main(videos_entradas[:1])
+
+
+
+img = cv2.imread('./frames/tirada_1/frame_46.jpg')
+img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+img_hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV) # Rangos --> H: 0-179  / S: 0-255  / V: 0-255
+h, s, v = cv2.split(img_hsv)
+plt.figure()
+ax1=plt.subplot(221); plt.imshow(img)
+plt.title(f'tirada_1/frame_46.jpg')
+plt.subplot(222, sharex=ax1, sharey=ax1), plt.imshow(h, cmap='gray'), plt.title('Canal H')
+plt.subplot(223, sharex=ax1, sharey=ax1), plt.imshow(s, cmap='gray'), plt.title('Canal S')
+plt.subplot(224, sharex=ax1, sharey=ax1), plt.imshow(v, cmap='gray'), plt.title('Canal V')
+plt.show(block=False) 
 
 input('enter')
+
 
 
 
